@@ -1,7 +1,8 @@
 import os
 import json
 import datetime
-from flask import Flask, render_template_string, request, send_file
+import pytz
+from flask import Flask, render_template_string, request
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
@@ -10,6 +11,8 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from email.mime.text import MIMEText
+from PIL import Image
+import pillow_heif
 
 app = Flask(__name__)
 
@@ -20,7 +23,6 @@ PASSWORD = os.environ.get("PASSWORD")
 
 COUNTERS_FILE = "counters.json"
 
-
 def load_counters():
     if os.path.exists(COUNTERS_FILE):
         with open(COUNTERS_FILE, "r") as f:
@@ -28,14 +30,13 @@ def load_counters():
     else:
         return {"week": {}, "year": {}, "overall": 0}
 
-
 def save_counters(counters):
     with open(COUNTERS_FILE, "w") as f:
         json.dump(counters, f)
 
-
 def update_counters():
-    now = datetime.datetime.now()
+    tz = pytz.timezone("Europe/Amsterdam")
+    now = datetime.datetime.now(tz)
     year = str(now.year)
     week = str(now.isocalendar()[1])
 
@@ -53,10 +54,10 @@ def update_counters():
     save_counters(counters)
     return counters["week"][week], counters["year"][year], counters["overall"]
 
-
 @app.route("/")
 def index():
-    now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
+    tz = pytz.timezone("Europe/Amsterdam")
+    now = datetime.datetime.now(tz).strftime("%d-%m-%Y %H:%M")
     html = """
     <!doctype html>
     <html>
@@ -72,7 +73,7 @@ def index():
     <body>
         <h2>Opdrachtbon formulier</h2>
         <p><b>Datum & tijd:</b> {{now}}</p>
-        <form action="/submit" method="post">
+        <form action="/submit" method="post" enctype="multipart/form-data">
             <label>Klantnaam</label><input type="text" name="klantnaam" required>
             <label>Kenteken</label><input type="text" name="kenteken" required>
             <label>IMEI nummer</label><input type="text" name="imei">
@@ -85,6 +86,9 @@ def index():
                 <option>Servicecall</option>
             </select>
             <label>Opmerkingen</label><textarea name="opmerkingen"></textarea>
+            <label>Foto 1</label><input type="file" name="foto1" accept="image/*">
+            <label>Foto 2</label><input type="file" name="foto2" accept="image/*">
+            <label>Foto 3</label><input type="file" name="foto3" accept="image/*">
             <label>Klant email</label><input type="email" name="klantemail">
             <button type="submit">Verstuur opdrachtbon</button>
         </form>
@@ -92,7 +96,6 @@ def index():
     </html>
     """
     return render_template_string(html, now=now)
-
 
 @app.route("/submit", methods=["POST"])
 def submit():
@@ -103,7 +106,8 @@ def submit():
     opmerkingen = request.form.get("opmerkingen")
     klantemail = request.form.get("klantemail")
 
-    now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
+    tz = pytz.timezone("Europe/Amsterdam")
+    now = datetime.datetime.now(tz).strftime("%d-%m-%Y %H:%M")
     week_total, year_total, overall_total = update_counters()
 
     pdf_file = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -121,6 +125,23 @@ def submit():
     c.drawString(2*cm, height-5*cm, f"IMEI: {imei}")
     c.drawString(2*cm, height-6*cm, f"Werkzaamheden: {werkzaamheden}")
     c.drawString(2*cm, height-7*cm, f"Opmerkingen: {opmerkingen}")
+
+    # Foto’s toevoegen
+    y = height - 9*cm
+    for i in range(1,4):
+        foto = request.files.get(f"foto{i}")
+        if foto and foto.filename != "":
+            path = f"foto_{i}.png"
+            # HEIC conversie via pillow-heif
+            if foto.filename.lower().endswith(".heic"):
+                heif_file = pillow_heif.read_heif(foto.read())
+                img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data)
+                img.save(path, "PNG")
+            else:
+                img = Image.open(foto.stream)
+                img.save(path, "PNG")
+            c.drawImage(path, 2*cm, y, width=5*cm, preserveAspectRatio=True, mask='auto')
+            y -= 6*cm
 
     # Counters onderaan in grijs
     c.setFont("Helvetica-Oblique", 9)
@@ -153,7 +174,6 @@ def submit():
         return "Opdrachtbon verstuurd!"
     except Exception as e:
         return f"Fout bij verzenden e-mail: {str(e)}"
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

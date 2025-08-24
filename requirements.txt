@@ -1,3 +1,6 @@
 flask
 reportlab
 gunicorn
+pillow
+pillow-heif
+pytz
