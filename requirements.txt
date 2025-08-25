@@ -4,3 +4,4 @@ gunicorn
 pillow
 pillow-heif
 pytz
+requests
