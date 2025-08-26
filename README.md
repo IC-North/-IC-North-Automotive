@@ -1,18 +1,15 @@
-# IC-North Automotive • Opdrachtbon (Render-ready)
+# IC-North Automotive Opdrachtbon
 
-## Inhoud
-- Huisstijl (blauw/grijs), logo in header, watermark in achtergrond
-- RDW-koppeling: merk/type/bouwjaar op kenteken
-- IMEI scan (QR/barcode via foto)
-- VIN-veld met 17-tekens-validatie (client & server)
-- Opmerkingen, 3 foto's in PDF
-- NL tijdzone + week/jaar/overall counters
-- Mail naar administratie + optioneel klant
+## Installatie lokaal
+```bash
+pip install -r requirements.txt
+python app.py
+```
 
-## Environment vars (Render)
-- SENDER_EMAIL  (bv. icnorthautomotive@gmail.com)
-- RECEIVER_EMAIL (bv. icnorthautomotive@gmail.com)
-- PASSWORD      (Gmail App Password, 16 tekens, zonder spaties)
+Open [http://127.0.0.1:5000](http://127.0.0.1:5000)
 
-## Deploy
-Upload alle bestanden naar GitHub en klik in Render: Deploy latest commit.
+## Deploy naar Render
+1. Push deze code naar GitHub
+2. Maak een nieuwe Web Service op Render
+3. Kies Python, selecteer deze repo
+4. Render gebruikt automatisch Procfile en runtime.txt
