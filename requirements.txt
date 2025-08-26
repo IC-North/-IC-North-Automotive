@@ -1,4 +1,4 @@
 flask
+requests
 reportlab
 gunicorn
-requests
