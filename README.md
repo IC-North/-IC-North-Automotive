@@ -1,15 +1,14 @@
-# IC-North Automotive Opdrachtbon
+# IC‑North Opdrachtbon (Render-ready)
 
-## Installatie lokaal
-```bash
-pip install -r requirements.txt
-python app.py
-```
+- RDW-koppeling: automatisch **Merk/Type/Bouwjaar** na invoer kenteken
+- iPhone-ready **camera scanner**: IMEI & VIN scannen (barcode), QR via togglen
+- PDF genereren en downloaden
 
-Open [http://127.0.0.1:5000](http://127.0.0.1:5000)
+## Deploy (Render)
+1. Maak een nieuwe **Web Service** → Python → **Deploy from a folder/repo** of **ZIP**.
+2. Upload deze map of de ZIP.
+3. Render installeert: `flask, reportlab, gunicorn, requests`.
+4. Start via `Procfile` → `gunicorn app:app`.
 
-## Deploy naar Render
-1. Push deze code naar GitHub
-2. Maak een nieuwe Web Service op Render
-3. Kies Python, selecteer deze repo
-4. Render gebruikt automatisch Procfile en runtime.txt
+> iOS vereist **HTTPS** voor camera-toegang. Render is HTTPS, dus scannen werkt.
+
