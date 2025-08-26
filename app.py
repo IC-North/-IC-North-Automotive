@@ -1,118 +1,99 @@
 import os
 import datetime
 import requests
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, jsonify
 
 app = Flask(__name__)
 
-# RDW API (kenteken info)
-def get_rdw_info(kenteken):
-    try:
-        url = f"https://opendata.rdw.nl/api/records/1.0/search/?dataset=gekentekende_voertuigen&q=kenteken:{kenteken}"
-        r = requests.get(url, timeout=5)
-        data = r.json()
-        if data["nhits"] > 0:
-            record = data["records"][0]["fields"]
-            merk = record.get("merk", "Onbekend")
-            handelsbenaming = record.get("handelsbenaming", "Onbekend")
-            bouwjaar = record.get("datum_eerste_toelating", "Onbekend")[:4]
-            return merk, handelsbenaming, bouwjaar
-    except Exception as e:
-        print("RDW fout:", e)
-    return "Onbekend", "Onbekend", "Onbekend"
-
-
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
 def index():
-    merk = type_auto = bouwjaar = ""
-    if request.method == "POST":
-        kenteken = request.form.get("kenteken", "").replace("-", "").upper()
-        imei = request.form.get("imei")
-        chassis = request.form.get("chassis")
-        opmerkingen = request.form.get("opmerkingen")
-        merk, type_auto, bouwjaar = get_rdw_info(kenteken)
-    else:
-        kenteken = imei = chassis = opmerkingen = ""
-
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
-
-    html = f"""
+    html = '''
     <!doctype html>
     <html>
     <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>IC-North Automotive - Opdrachtbon</title>
-      <style>
-        body {{ font-family: Arial, sans-serif; max-width: 700px; margin: auto; padding: 20px; background: #f7f9fb; }}
-        h2 {{ text-align: center; color: #003366; }}
-        label {{ font-weight: bold; display:block; margin-top: 10px; }}
-        input, textarea {{ width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 6px; }}
-        button {{ margin-top: 15px; padding: 15px; background: #003366; color: white; border: none; border-radius: 8px; width: 100%; }}
-        #scanner {{ width: 100%; height: 250px; background: #000; margin-top: 10px; }}
-      </style>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Opdrachtbon</title>
+        <style>
+            body { font-family: Arial; padding: 20px; background: #f4f7fb; }
+            input, textarea, select, button { width: 100%; padding: 10px; margin: 5px 0; font-size: 16px; }
+            button { background: #0056b3; color: white; border: none; cursor: pointer; }
+            button:hover { background: #003d80; }
+            .readonly { background: #e9ecef; }
+        </style>
     </head>
     <body>
-      <h2>IC-North Automotive<br>Opdrachtbon</h2>
-      <p><b>Datum & tijd:</b> {now}</p>
-      <form method="POST">
-        <label>Kenteken</label>
-        <input type="text" name="kenteken" value="{kenteken}" onblur="this.form.submit()" required>
-        <p><b>Merk:</b> {merk} | <b>Type:</b> {type_auto} | <b>Bouwjaar:</b> {bouwjaar}</p>
+        <h2>Opdrachtbon formulier</h2>
+        <p><b>Datum & tijd:</b> {{now}}</p>
+        <form action="/submit" method="post">
+            <label>Kenteken</label>
+            <input type="text" id="kenteken" name="kenteken" required>
+            <button type="button" onclick="haalGegevens()">Haal gegevens op</button>
+            
+            <label>Merk</label>
+            <input type="text" id="merk" name="merk" class="readonly" readonly>
+            
+            <label>Type</label>
+            <input type="text" id="handelsbenaming" name="handelsbenaming" class="readonly" readonly>
+            
+            <label>Bouwjaar</label>
+            <input type="text" id="bouwjaar" name="bouwjaar" class="readonly" readonly>
+            
+            <label>Klantnaam</label><input type="text" name="klantnaam" required>
+            <label>IMEI nummer (scan of invoer)</label><input type="text" name="imei">
+            <label>Werkzaamheden</label>
+            <select name="werkzaamheden">
+                <option>Inbouw</option>
+                <option>Ombouw</option>
+                <option>Overbouw</option>
+                <option>Uitbouw</option>
+                <option>Servicecall</option>
+            </select>
+            <label>Opmerkingen</label><textarea name="opmerkingen"></textarea>
+            <button type="submit">Verstuur opdrachtbon</button>
+        </form>
 
-        <label>IMEI nummer</label>
-        <input type="text" id="imei" name="imei" value="{imei}">
-        <button type="button" onclick="startBarcodeScanner()">Scan IMEI (Barcode/QR)</button>
-        <div id="scanner"></div>
-
-        <label>Chassisnummer (17 tekens)</label>
-        <input type="text" id="chassis" name="chassis" value="{chassis}" maxlength="17">
-
-        <label>Opmerkingen</label>
-        <textarea name="opmerkingen">{opmerkingen}</textarea>
-
-        <button type="submit">Verstuur</button>
-      </form>
-
-      <!-- QuaggaJS (Barcode scanner) -->
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-      <!-- jsQR (QR scanner) -->
-      <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
-
-      <script>
-        function startBarcodeScanner() {{
-          Quagga.init({{
-            inputStream: {{
-              name: "Live",
-              type: "LiveStream",
-              target: document.querySelector('#scanner'),
-              constraints: {{
-                facingMode: "environment"
-              }}
-            }},
-            decoder: {{
-              readers: ["code_128_reader","ean_reader","ean_8_reader","code_39_reader"]
-            }}
-          }}, function(err) {{
-            if (err) {{
-              console.log(err);
-              alert("Fout bij starten scanner: " + err);
-              return;
-            }}
-            Quagga.start();
-          }});
-
-          Quagga.onDetected(function(result) {{
-            document.getElementById("imei").value = result.codeResult.code;
-            Quagga.stop();
-            alert("IMEI gescand: " + result.codeResult.code);
-          }});
-        }}
-      </script>
+        <script>
+        async function haalGegevens() {
+            const kenteken = document.getElementById("kenteken").value;
+            if (!kenteken) { alert("Vul eerst een kenteken in"); return; }
+            const response = await fetch(`/rdw/${kenteken}`);
+            const data = await response.json();
+            if (data.fout) {
+                alert(data.fout);
+            } else {
+                document.getElementById("merk").value = data.merk;
+                document.getElementById("handelsbenaming").value = data.handelsbenaming;
+                document.getElementById("bouwjaar").value = data.bouwjaar;
+            }
+        }
+        </script>
     </body>
     </html>
-    """
-    return render_template_string(html)
+    '''
+    return render_template_string(html, now=now)
 
+@app.route("/rdw/<kenteken>")
+def rdw_lookup(kenteken):
+    try:
+        url = f"https://opendata.rdw.nl/resource/m9d7-ebf2.json?kenteken={kenteken.replace('-','').upper()}"
+        r = requests.get(url, timeout=5)
+        data = r.json()
+        if not data:
+            return jsonify({"fout": "Geen gegevens gevonden"})
+        voertuig = data[0]
+        return jsonify({
+            "merk": voertuig.get("merk", ""),
+            "handelsbenaming": voertuig.get("handelsbenaming", ""),
+            "bouwjaar": voertuig.get("datum_eerste_toelating", "")[:4]
+        })
+    except Exception as e:
+        return jsonify({"fout": str(e)})
+
+@app.route("/submit", methods=["POST"])
+def submit():
+    return "Formulier verstuurd (demo)."
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
