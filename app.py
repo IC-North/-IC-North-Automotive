@@ -156,3 +156,13 @@ def submit():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+def normalize_kenteken(kenteken: str) -> str:
+    import re
+    kenteken = kenteken.upper().replace(" ", "").replace("-", "")
+    # Nederlands kenteken patroon (vereenvoudigd): 6/7 letters+cijfers met streepjes
+    if len(kenteken) == 6:
+        return f"{kenteken[0:2]}-{kenteken[2:4]}-{kenteken[4:6]}"
+    elif len(kenteken) == 7:
+        return f"{kenteken[0:2]}-{kenteken[2:3]}-{kenteken[3:6]}"
+    return kenteken
