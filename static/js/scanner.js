@@ -1,46 +1,71 @@
-function startScanner(targetInputId) {
-    if (Quagga.initialized) {
-        Quagga.stop();
+
+async function startScanner(targetFieldId) {
+    try {
+        // Sluit oude streams af
+        if (window.currentStream) {
+            window.currentStream.getTracks().forEach(track => track.stop());
+        }
+
+        const constraints = {
+            video: { facingMode: "environment" }
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        window.currentStream = stream;
+
+        // Videoveld fullscreen tonen
+        let video = document.createElement("video");
+        video.setAttribute("playsinline", true);
+        video.style.position = "fixed";
+        video.style.top = "0";
+        video.style.left = "0";
+        video.style.width = "100%";
+        video.style.height = "100%";
+        video.style.zIndex = "9999";
+        document.body.appendChild(video);
+        video.srcObject = stream;
+        await video.play();
+
+        // BarcodeDetector fallback voor iOS
+        let detector;
+        if ('BarcodeDetector' in window) {
+            detector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'upc_a'] });
+        }
+
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+
+        async function scanFrame() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                if (detector) {
+                    try {
+                        const barcodes = await detector.detect(canvas);
+                        if (barcodes.length > 0) {
+                            let code = barcodes[0].rawValue;
+                            document.getElementById(targetFieldId).value = code;
+
+                            stopScanner(video, stream);
+                            return;
+                        }
+                    } catch (e) {
+                        console.error("Detectie fout:", e);
+                    }
+                }
+            }
+            requestAnimationFrame(scanFrame);
+        }
+
+        scanFrame();
+    } catch (err) {
+        alert("Camera toegang geweigerd of niet beschikbaar.");
+        console.error(err);
     }
+}
 
-    Quagga.init({
-        inputStream: {
-            type: "LiveStream",
-            constraints: {
-                facingMode: "environment",
-                aspectRatio: { min: 1, max: 2 },
-                width: { min: 640, ideal: 1280 },
-                height: { min: 480, ideal: 720 }
-            },
-            area: { top: "25%", right: "25%", left: "25%", bottom: "25%" }
-        },
-        decoder: {
-            readers: [
-                "code_128_reader",
-                "ean_reader",
-                "ean_8_reader",
-                "code_39_reader",
-                "code_39_vin_reader",
-                "upc_reader",
-                "upc_e_reader",
-                "i2of5_reader",
-                "qr_reader"
-            ]
-        }
-    }, function (err) {
-        if (err) {
-            console.error(err);
-            alert("Camera kon niet worden gestart. Controleer permissies.");
-            return;
-        }
-        Quagga.start();
-        Quagga.initialized = true;
-        document.getElementById("scanner-container").style.display = "block";
-    });
-
-    Quagga.onDetected(function (data) {
-        document.getElementById(targetInputId).value = data.codeResult.code;
-        Quagga.stop();
-        document.getElementById("scanner-container").style.display = "none";
-    });
+function stopScanner(video, stream) {
+    stream.getTracks().forEach(track => track.stop());
+    video.remove();
 }
