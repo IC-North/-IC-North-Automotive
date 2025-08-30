@@ -84,7 +84,7 @@ def index():
               <div class="rdw">
                 <div style="flex:1">
                   <label>Kenteken</label>
-                  <input id="kenteken" style="width:200px;" oninput="formatKenteken()" name="kenteken" required placeholder="Bijv. VGK-91-X" autocomplete="off">
+                  <input id="kenteken" name="kenteken" required placeholder="Bijv. VGK-91-X" autocomplete="off">
                   <div class="hint">Wordt automatisch geformatteerd en opgehaald.</div>
                 </div>
                 <button type="button" class="btn secondary" onclick="haalRdw()">Haal RDW</button>
@@ -242,23 +242,7 @@ def index():
           }
         }
       </script>
-    
-<script>
-function formatKenteken() {
-    let input = document.getElementById("kenteken");
-    let val = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (val.length === 6) {
-        val = val.replace(/(.{2})(.{2})(.{2})/, "$1-$2-$3");
-    } else if (val.length === 7) {
-        val = val.replace(/(.{2})(.{3})(.{2})/, "$1-$2-$3");
-    } else if (val.length === 8) {
-        val = val.replace(/(.{2})(.{2})(.{3})(.{1})/, "$1-$2-$3-$4");
-    }
-    input.value = val;
-}
-</script>
-
-</body>
+    </body>
     </html>
     """
     return render_template_string(html, now=now)
