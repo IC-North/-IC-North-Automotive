@@ -182,28 +182,7 @@ def index():
           <div class="sub">Datum &amp; tijd: <strong>{{now}}</strong></div>
 
           <form action="/submit" method="post" id="bonform">
-            <div class="row row-2">
-              <div>
-                <label>Klantnaam</label>
-                <input name="klantnaam" required placeholder="Bedrijf of persoon">
-              </div>
-              <div class="rdw">
-                <div style="flex:1">
-                  <label>Kenteken</label>
-                  <input id="kenteken" style="width:200px;" oninput="formatKenteken()" name="kenteken" required placeholder="Bijv. VGK-91-X" autocomplete="off">
-                  <div class="hint">Wordt automatisch geformatteerd en opgehaald.</div>
-                </div>
-                <button type="button" class="btn secondary" onclick="haalRdw()">Haal RDW</button>
-              </div>
-
             </div>
-
-            <div class="row row-2">
-              <div>
-                <label>Versturen naar IC-North</label>
-                <input type="email" name="senderemail" id="senderemail" value="icnorthautomotive@gmail.com" readonly>
-                <div class="hint">Dit adres is vast en wordt altijd gebruikt.</div>
-              </div>
               <div>
                 <label>Klant e‑mail (optioneel)</label>
                 <input type="email" name="klantemail" id="klant_email" list="email_suggesties" placeholder="bijv. klant@voorbeeld.nl" autocomplete="off">
@@ -212,60 +191,7 @@ def index():
               </div>
             </div>
 
-            <div class="row row-3">
-              <div>
-                <label>Merk</label>
-                <input id="merk" name="merk" readonly>
-              </div>
-              <div>
-                <label>Type</label>
-                <input id="type" name="type" readonly>
-              </div>
-              <div>
-                <label>Bouwjaar</label>
-                <input id="bouwjaar" name="bouwjaar" readonly>
-              </div>
-            </div>
-
-            <div class="row row-2">
-              <div>
-                <label>IMEI nummer</label>
-                <input id="imei" name="imei" placeholder="Scan of typ het nummer">
-                <div class="actions">
-                  <button type="button" class="btn icon" onclick="openScanner('imei')">Scan IMEI</button>
-                </div>
-              </div>
-              <div>
-                <label>VIN (chassisnummer – 17 tekens)</label>
-                <input id="vin" name="vin" maxlength="17" minlength="17" placeholder="Scan of typ VIN (17)">
-                <div class="actions">
-                  <button type="button" class="btn icon" onclick="openScanner('vin')">Scan VIN</button>
-                </div>
-              </div>
-            </div>
-
             <div>
-              <label>Werkzaamheden</label>
-              <select name="werkzaamheden">
-                <option>Inbouw</option>
-                <option>Ombouw</option>
-                <option>Overbouw</option>
-                <option>Uitbouw</option>
-                <option>Servicecall</option>
-              </select>
-            </div>
-
-            <div>
-              <label>Opmerkingen</label>
-              <textarea name="opmerkingen" placeholder="Toelichting op uitgevoerde werkzaamheden"></textarea>
-            </div>
-
-            <div class="row row-2">
-              <div>
-                <label>Klant e‑mail</label>
-                <input type="email" name="klantemail" placeholder="klant@domein.nl">
-              </div>
-              <div>
                 <label>Eigen e‑mail (afzender)</label>
                 <input type="email" name="senderemail" placeholder="icnorthautomotive@gmail.com" value="icnorthautomotive@gmail.com">
               </div>
