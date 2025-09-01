@@ -15,11 +15,52 @@ app = Flask(__name__)
 
 # ---------- Helpers ----------
 def format_kenteken(raw: str) -> str:
-    """Geef kenteken terug in hoofdletters, exact zoals ingevoerd (RDW-formaat)."""
+    """Formatteer NL-kenteken volgens RDW-series en zet naar hoofdletters.
+    - Verwijdert spaties en niet-alfanumerieke tekens voor het bepalen van de serie.
+    - Plaatst streepjes volgens de herkende serie (bijv. "VGX33H" -> "VGX-33-H").
+    - Als geen serie herkend wordt, geeft input terug in hoofdletters (streepjes behouden indien aanwezig).
+    """
     if not raw:
         return ""
-    return raw.upper()
+    # Uppercase + schoon voor detectie
+    original = str(raw)
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", original).upper()
 
+    # Defineer RDW-series (niet uitputtend, maar de gangbare reeksen)
+    series = [
+        # Oudere 2-2-2 reeksen
+        (re.compile(r"^[A-Z]{2}\d{4}$"), (2,2,2)),  # AA-99-99
+        (re.compile(r"^\d{4}[A-Z]{2}$"), (2,2,2)),  # 99-99-AA
+        (re.compile(r"^\d{2}[A-Z]{2}\d{2}$"), (2,2,2)),  # 99-AA-99
+        (re.compile(r"^[A-Z]{2}\d{2}[A-Z]{2}$"), (2,2,2)),  # AA-99-AA
+        (re.compile(r"^[A-Z]{4}\d{2}$"), (2,2,2)),  # AA-AA-99
+        (re.compile(r"^\d{2}[A-Z]{4}$"), (2,2,2)),  # 99-AA-AA
+
+        # Moderne reeksen
+        (re.compile(r"^[A-Z]{2}\d{3}[A-Z]{1}$"), (2,3,1)),  # AA-999-A
+        (re.compile(r"^[A-Z]{1}\d{3}[A-Z]{2}$"), (1,3,2)),  # A-999-AA
+        (re.compile(r"^[A-Z]{3}\d{2}[A-Z]{1}$"), (3,2,1)),  # AAA-99-A
+        (re.compile(r"^[A-Z]{1}\d{2}[A-Z]{3}$"), (1,2,3)),  # A-99-AAA
+        (re.compile(r"^\d{1}[A-Z]{3}\d{2}$"), (1,3,2)),    # 9-AAA-99
+        (re.compile(r"^\d{2}[A-Z]{3}\d{1}$"), (2,3,1)),    # 99-AAA-9
+    ]
+
+    formatted = None
+    for regex, groups in series:
+        if regex.match(cleaned):
+            parts = []
+            idx = 0
+            for g in groups:
+                parts.append(cleaned[idx:idx+g])
+                idx += g
+            formatted = "-".join(parts)
+            break
+
+    if formatted:
+        return formatted
+
+    # Geen match: behoud bestaande streepjes en maak hoofdletters
+    return original.upper()
 def safe_get(d, key, default=""):
     return d.get(key, default) if isinstance(d, dict) else default
 
@@ -242,16 +283,8 @@ def index():
     
 <script>
 function formatKenteken() {
-    let input = document.getElementById("kenteken");
-    let val = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (val.length === 6) {
-        val = val.replace(/(.{2})(.{2})(.{2})/, "$1-$2-$3");
-    } else if (val.length === 7) {
-        val = val.replace(/(.{2})(.{3})(.{2})/, "$1-$2-$3");
-    } else if (val.length === 8) {
-        val = val.replace(/(.{2})(.{2})(.{3})(.{1})/, "$1-$2-$3-$4");
-    }
-    input.value = val;
+    const input = document.getElementById("kenteken");
+    input.value = input.value.toUpperCase();
 }
 </script>
 
