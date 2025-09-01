@@ -15,13 +15,10 @@ app = Flask(__name__)
 
 # ---------- Helpers ----------
 def format_kenteken(raw: str) -> str:
-    """Zet kenteken om naar hoofdletters en plaats streepjes tussen letter-/cijferblokken.
-    Voorbeeld: 'vgk91x' -> 'VGK-91-X'  |  '12ab34' -> '12-AB-34'"""
+    """Geef kenteken terug in hoofdletters, exact zoals ingevoerd (RDW-formaat)."""
     if not raw:
         return ""
-    s = re.sub(r"[^A-Za-z0-9]", "", raw).upper()
-    parts = re.findall(r"[A-Z]+|\d+", s)
-    return "-".join(parts)
+    return raw.upper()
 
 def safe_get(d, key, default=""):
     return d.get(key, default) if isinstance(d, dict) else default
