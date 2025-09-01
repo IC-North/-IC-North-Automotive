@@ -11,7 +11,75 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 
+import smtplib
+from email.message import EmailMessage
+
+
 app = Flask(__name__)
+
+EMAILS_PATH = os.path.join(os.path.dirname(__file__), "emails.json")
+
+def _load_emails():
+    try:
+        with open(EMAILS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                # normaliseer naar lowercase uniek en zet weer naar originele casing (hier uppercase niet gewenst)
+                uniq = []
+                seen = set()
+                for e in data:
+                    k = e.strip()
+                    if k and k.lower() not in seen:
+                        seen.add(k.lower())
+                        uniq.append(k)
+                return uniq
+            return []
+    except Exception:
+        return []
+
+def _save_email(addr: str):
+    if not addr:
+        return
+    addr = addr.strip()
+    if not addr:
+        return
+    lst = _load_emails()
+    if addr.lower() not in [e.lower() for e in lst]:
+        lst.append(addr)
+        try:
+            with open(EMAILS_PATH, "w", encoding="utf-8") as f:
+                json.dump(lst, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+def send_mail(to_list, subject, body, pdf_bytes, filename):
+    """Verstuur e-mail met PDF-bijlage via SMTP (Gmail of andere provider).
+    Configureer via env vars: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM.
+    """
+    host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    user = os.environ.get("SMTP_USER", os.environ.get("SMTP_FROM", "icnorthautomotive@gmail.com"))
+    pwd  = os.environ.get("SMTP_PASS", "")
+    from_addr = os.environ.get("SMTP_FROM", "icnorthautomotive@gmail.com")
+
+    if not pwd:
+        # Geen wachtwoord geconfigureerd: sla het mailen stilletjes over
+        return False
+
+    msg = EmailMessage()
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(to_list)
+    msg["Subject"] = subject
+    msg.set_content(body)
+    if pdf_bytes:
+        msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=filename)
+
+    with smtplib.SMTP(host, port) as smtp:
+        smtp.starttls()
+        smtp.login(user, pwd)
+        smtp.send_message(msg)
+    return True
+
 
 # ---------- Helpers ----------
 def format_kenteken(raw: str) -> str:
@@ -126,6 +194,21 @@ def index():
                   <div class="hint">Wordt automatisch geformatteerd en opgehaald.</div>
                 </div>
                 <button type="button" class="btn secondary" onclick="haalRdw()">Haal RDW</button>
+              </div>
+
+            </div>
+
+            <div class="row row-2">
+              <div>
+                <label>Versturen naar IC-North</label>
+                <input type="email" name="senderemail" id="senderemail" value="icnorthautomotive@gmail.com" readonly>
+                <div class="hint">Dit adres is vast en wordt altijd gebruikt.</div>
+              </div>
+              <div>
+                <label>Klant e‑mail (optioneel)</label>
+                <input type="email" name="klantemail" id="klant_email" list="email_suggesties" placeholder="bijv. klant@voorbeeld.nl" autocomplete="off">
+                <datalist id="email_suggesties"></datalist>
+                <div class="hint">We onthouden adressen en vullen automatisch aan.</div>
               </div>
             </div>
 
@@ -286,6 +369,21 @@ function formatKenteken() {
     const input = document.getElementById("kenteken");
     input.value = input.value.toUpperCase();
 }
+
+        // Autocomplete voor klant e-mail
+        document.addEventListener('DOMContentLoaded', () => {
+          fetch('/emails').then(r=>r.json()).then(list => {
+            const dl = document.getElementById('email_suggesties');
+            if (dl && Array.isArray(list)) {
+              dl.innerHTML = '';
+              list.forEach(e => {
+                const opt = document.createElement('option');
+                opt.value = e;
+                dl.appendChild(opt);
+              });
+            }
+          }).catch(()=>{});
+        });
 </script>
 
 </body>
@@ -298,6 +396,11 @@ def api_format_kenteken():
     data = request.get_json(force=True, silent=True) or {}
     formatted = format_kenteken(data.get("raw",""))
     return jsonify({"formatted": formatted})
+
+
+@app.route("/emails", methods=["GET"])
+def list_emails():
+    return jsonify(_load_emails())
 
 @app.route("/rdw")
 def rdw():
@@ -334,6 +437,8 @@ def submit():
     werkzaamheden = request.form.get("werkzaamheden","")
     opmerkingen = request.form.get("opmerkingen","")
     klantemail = request.form.get("klantemail","")
+    if klantemail:
+        _save_email(klantemail)
     senderemail = request.form.get("senderemail","icnorthautomotive@gmail.com")
 
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
@@ -374,6 +479,23 @@ def submit():
 
     pdf_buf.seek(0)
     filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    
+
+    # Verzenden per e-mail
+    recipients = ["icnorthautomotive@gmail.com"]
+    if klantemail:
+        recipients.append(klantemail)
+    try:
+        send_mail(
+            to_list=recipients,
+            subject=f"Nieuwe opdrachtbon - {klantnaam} ({kenteken})",
+            body=f"Opdrachtbon voor {klantnaam}\nKenteken: {kenteken}\nMerk/Type: {merk} {type_}\nBouwjaar: {bouwjaar}\nTijd: {now}",
+            pdf_bytes=pdf_buf.getvalue(),
+            filename=filename
+        )
+    except Exception:
+        pass
+
     return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
 
 if __name__ == "__main__":
