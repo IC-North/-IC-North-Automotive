@@ -342,61 +342,9 @@ def submit():
     c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier")
     c.save()
 
-    
-    # --- E-mail verzenden (optioneel) ---
-    # Gebruik de afzender uit het formulier als gebruikersnaam; wachtwoord via env SMTP_PASSWORD (Gmail app-wachtwoord aanbevolen).
-    senderemail = (request.form.get("senderemail") or "").strip()
-    klantemail = (request.form.get("klantemail") or "").strip()
-    admin_bcc = os.environ.get("RECEIVER_EMAIL", "").strip()
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_password = os.environ.get("SMTP_PASSWORD", "")
-    subject_text = os.environ.get("MAIL_SUBJECT", "Opdrachtbon – {klantnaam} – {kenteken}").format(klantnaam=klantnaam or "", kenteken=kenteken or "")
-    body_text = os.environ.get("MAIL_BODY", "In de bijlage vind je de opdrachtbon (PDF).")
-
-    sent = False
-    send_error = None
-    tos = [e for e in [klantemail, admin_bcc] if e]
-
-    if senderemail and smtp_password and tos:
-        try:
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.application import MIMEApplication
-            from email.mime.text import MIMEText
-            import smtplib, socket
-            socket.setdefaulttimeout(10)
-
-            msg = MIMEMultipart()
-            msg["From"] = senderemail
-            msg["To"] = ", ".join(tos)
-            msg["Subject"] = subject_text
-            msg.attach(MIMEText(body_text, "plain", "utf-8"))
-
-            part = MIMEApplication(pdf_buf.getvalue(), _subtype="pdf")
-            part.add_header("Content-Disposition", "attachment", filename=filename)
-            msg.attach(part)
-
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as s:
-                s.starttls()
-                s.login(senderemail, smtp_password)
-                s.sendmail(senderemail, tos, msg.as_string())
-            sent = True
-        except Exception as e:
-            send_error = str(e)
-
-    # Download fallback en statusmelding
     pdf_buf.seek(0)
-    if sent:
-        # Laat ook download toe, met melding in bestandsnaam
-        return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
-    elif send_error:
-        # Stuur bestand toch terug, met foutmelding in bestandsnaam
-        fail_name = filename.replace(".pdf", "_MAIL_FOUT.pdf")
-        return send_file(pdf_buf, as_attachment=True, download_name=fail_name, mimetype="application/pdf")
-    else:
-        # Geen e-mailconfig of ontvangers: alleen download
-        return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
-
+    filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
