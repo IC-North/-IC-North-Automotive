@@ -386,6 +386,8 @@ def submit():
 
     # Download fallback en statusmelding
     pdf_buf.seek(0)
+    filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
     if sent:
         # Laat ook download toe, met melding in bestandsnaam
         return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
