@@ -7,6 +7,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 
 app = Flask(__name__)
 
@@ -251,6 +252,15 @@ def submit():
     imei = request.form.get("imei",""); vin = request.form.get("vin","")
     werkzaamheden = request.form.get("werkzaamheden",""); opmerkingen = request.form.get("opmerkingen","")
     klantemail = (request.form.get("klantemail","") or "").strip()
+    # Uploaded foto's ophalen (optioneel)
+    foto_fields = ["foto_kenteken","foto_imei","foto_chassis","foto_extra1","foto_extra2"]
+    fotos = []
+    for fname in foto_fields:
+        f = request.files.get(fname)
+        if f and getattr(f, "filename", ""):
+            data = f.read()
+            if data:
+                fotos.append((fname, data, f.filename))
 
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
     pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
@@ -261,7 +271,35 @@ def submit():
     c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
     c.setFont("Helvetica", 10); t = c.beginText(2*cm, y)
     for line in (opmerkingen or "-").splitlines(): t.textLine(line)
-    c.drawText(t); c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
+    c.drawText(t)
+    # Foto's in de PDF plaatsen (indien aanwezig)
+    try:
+        if fotos:
+            y -= 0.6*cm
+            c.setFont("Helvetica-Bold", 11); c.setFillColor(colors.black)
+            c.drawString(2*cm, y, "Foto's:"); y -= 0.4*cm
+            max_w = (w - 4*cm); max_h = 9*cm
+            for key, img_bytes, orig in fotos:
+                try:
+                    ir = ImageReader(BytesIO(img_bytes))
+                    iw, ih = ir.getSize()
+                    if iw and ih:
+                        scale = min(max_w/iw, max_h/ih)
+                        tw, th = iw*scale, ih*scale
+                        if y - th < 2.5*cm:
+                            c.showPage(); c.setFont("Helvetica", 10); y = h - 2.5*cm
+                        label = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}.get(key, key)
+                        c.setFont("Helvetica-Oblique", 9); c.setFillColor(colors.grey)
+                        c.drawString(2*cm, y, f"{label}: {orig or ''}"); y -= 0.3*cm
+                        c.setFillColor(colors.black)
+                        c.drawImage(ir, 2*cm, y - th, width=tw, height=th, preserveAspectRatio=True, mask='auto')
+                        y -= th + 0.6*cm
+                except Exception as _e:
+                    # Als één foto niet lukt, ga door met de rest
+                    pass
+    except Exception:
+        pass
+    c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
     c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier"); c.save()
 
     pdf_bytes = pdf_buf.getvalue(); filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
