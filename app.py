@@ -1,4 +1,6 @@
-from mailer import build_message, send_email, MailConfigError\nimport os\n
+from mailer import build_message, send_email, MailConfigError
+import os
+
 import os
 import re
 import json
