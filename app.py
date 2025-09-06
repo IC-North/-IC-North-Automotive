@@ -274,70 +274,70 @@ def submit():
                 fotos.append((fname, data, f.filename))
 
 
-# Beperk bestandsgrootte: downscale & compress (JPEG) — agressiever
-processed = []
-try:
-    from PIL import Image, ImageOps
-    target_side = int(os.getenv("IMG_MAX_SIDE", "1024"))  # strakker: 1024px
-    base_quality = int(os.getenv("IMG_JPEG_QUALITY", "70"))
-    min_quality = int(os.getenv("IMG_JPEG_QUALITY_MIN", "55"))
-    target_kb = int(os.getenv("IMG_TARGET_PER_IMAGE_KB", "320"))
-    for key, img_bytes, orig_name in fotos:
-        try:
-            im = Image.open(BytesIO(img_bytes))
-            # Corrigeer oriëntatie en converteer naar RGB (strip EXIF)
-            try:
-                im = ImageOps.exif_transpose(im)
-            except Exception:
-                pass
-            if im.mode not in ("RGB",):
-                im = im.convert("RGB")
-            # Downscale met thumbnail (behoud aspect)
-            im.thumbnail((target_side, target_side))
-            # Kwaliteit stap-gewijs omlaag tot doelgrootte
-            q = base_quality
-            out = BytesIO()
-            im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling="2x2")
-            while out.tell() > (target_kb * 1024) and q > min_quality:
-                q = max(min_quality, q - 5)
-                out.seek(0); out.truncate(0)
-                im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling="2x2")
-            processed.append((key, out.getvalue(), orig_name))
-        except Exception:
-            processed.append((key, img_bytes, orig_name))
-    fotos = processed
-except Exception:
-    pass
-    # Totale payload limiter (bijv. 12 MB voor alle foto's samen)
+    # Beperk bestandsgrootte: downscale & compress (JPEG) — agressiever
+    processed = []
     try:
-        total_bytes = sum(len(b) for _, b, _ in fotos)
-        max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "6")) * 1024 * 1024
-        if total_bytes > max_total:
-            # Trim of weiger extra foto's boven limiet
-            acc = 0
-            limited = []
-            for tup in fotos:
-                acc += len(tup[1])
-                if acc <= max_total:
-                    limited.append(tup)
-                else:
-                    break
-            fotos = limited
+        from PIL import Image, ImageOps
+        target_side = int(os.getenv("IMG_MAX_SIDE", "1024"))  # strakker: 1024px
+        base_quality = int(os.getenv("IMG_JPEG_QUALITY", "70"))
+        min_quality = int(os.getenv("IMG_JPEG_QUALITY_MIN", "55"))
+        target_kb = int(os.getenv("IMG_TARGET_PER_IMAGE_KB", "320"))
+        for key, img_bytes, orig_name in fotos:
+            try:
+                im = Image.open(BytesIO(img_bytes))
+                # Corrigeer oriëntatie en converteer naar RGB (strip EXIF)
+                try:
+                    im = ImageOps.exif_transpose(im)
+                except Exception:
+                    pass
+                if im.mode not in ("RGB",):
+                    im = im.convert("RGB")
+                # Downscale met thumbnail (behoud aspect)
+                im.thumbnail((target_side, target_side))
+                # Kwaliteit stap-gewijs omlaag tot doelgrootte
+                q = base_quality
+                out = BytesIO()
+                im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling="2x2")
+                while out.tell() > (target_kb * 1024) and q > min_quality:
+                    q = max(min_quality, q - 5)
+                    out.seek(0); out.truncate(0)
+                    im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling="2x2")
+                processed.append((key, out.getvalue(), orig_name))
+            except Exception:
+                processed.append((key, img_bytes, orig_name))
+        fotos = processed
     except Exception:
         pass
-    now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
-    pdf_buf = BytesIO()
-    c = canvas.Canvas(pdf_buf, pagesize=A4)
-    w, h = A4
-    c.setFont("Helvetica-Bold", 13); c.drawString(2*cm, h-2*cm, f"Opdrachtbon · {now}")
-    c.setFont("Helvetica", 11); y = h-3.2*cm
-    for ln in [f"Klantnaam: {klantnaam}", f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}", f"IMEI: {imei}", f"VIN: {vin}", f"Werkzaamheden: {werkzaamheden}"]:
-        c.drawString(2*cm, y, ln); y -= 1.0*cm
-    c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
-    c.setFont("Helvetica", 10); t = c.beginText(2*cm, y)
-    for line in (opmerkingen or "-").splitlines(): t.textLine(line)
-    c.drawText(t)
-
+        # Totale payload limiter (bijv. 12 MB voor alle foto's samen)
+        try:
+            total_bytes = sum(len(b) for _, b, _ in fotos)
+            max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "6")) * 1024 * 1024
+            if total_bytes > max_total:
+                # Trim of weiger extra foto's boven limiet
+                acc = 0
+                limited = []
+                for tup in fotos:
+                    acc += len(tup[1])
+                    if acc <= max_total:
+                        limited.append(tup)
+                    else:
+                        break
+                fotos = limited
+        except Exception:
+            pass
+        now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
+        pdf_buf = BytesIO()
+        c = canvas.Canvas(pdf_buf, pagesize=A4)
+        w, h = A4
+        c.setFont("Helvetica-Bold", 13); c.drawString(2*cm, h-2*cm, f"Opdrachtbon · {now}")
+        c.setFont("Helvetica", 11); y = h-3.2*cm
+        for ln in [f"Klantnaam: {klantnaam}", f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}", f"IMEI: {imei}", f"VIN: {vin}", f"Werkzaamheden: {werkzaamheden}"]:
+            c.drawString(2*cm, y, ln); y -= 1.0*cm
+        c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
+        c.setFont("Helvetica", 10); t = c.beginText(2*cm, y)
+        for line in (opmerkingen or "-").splitlines(): t.textLine(line)
+        c.drawText(t)
+    
     # Foto's toevoegen aan PDF
     try:
         if fotos:
