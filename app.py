@@ -1,4 +1,4 @@
-
+from mailer import build_message, send_email, MailConfigError\nimport os\n
 import os
 import re
 import json
@@ -403,3 +403,22 @@ def submit():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
+
+
+@app.get("/healthz")
+def healthz():
+    return "ok", 200
+
+
+@app.get("/debug/send-test")
+def send_test():
+    sender = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USER")
+    rcpt   = os.getenv("RECEIVER_EMAIL") or sender
+    msg = build_message(
+        subject="Test IC-North mail",
+        body_text="Dit is een test vanaf Render.",
+        sender=sender,
+        recipient=rcpt
+    )
+    status = send_email(msg)
+    return {"ok": True, "status": status}
