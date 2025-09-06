@@ -1,8 +1,5 @@
 from mailer import build_message, send_email, MailConfigError
 import os
-
-
-import os
 import re
 import json
 import datetime
@@ -13,6 +10,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
+
 
 app = Flask(__name__)
 
