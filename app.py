@@ -8,8 +8,10 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
+from PIL import Image
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_CONTENT_LENGTH_MB', '25')) * 1024 * 1024  # max upload size
 
 def format_kenteken(raw: str) -> str:
     if not raw: return ""
@@ -270,7 +272,51 @@ def submit():
             data = f.read()
             if data:
                 fotos.append((fname, data, f.filename))
-        now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
+
+    # Beperk bestandsgrootte: downscale & compress (JPEG)
+    processed = []
+    try:
+        for key, img_bytes, orig_name in fotos:
+            try:
+                im = Image.open(BytesIO(img_bytes))
+                # Forceer kleurmodus voor JPEG
+                if im.mode in ("RGBA", "P"):
+                    im = im.convert("RGB")
+                # Downscale: max 1600px langste zijde
+                max_side = int(os.getenv("IMG_MAX_SIDE", "1600"))
+                w, h = im.size
+                scale = min(1.0, max_side / float(max(w, h))) if max(w,h) else 1.0
+                if scale < 1.0:
+                    im = im.resize((int(w*scale), int(h*scale)))
+                # JPEG opslaan met kwaliteit 75
+                out = BytesIO()
+                im.save(out, format="JPEG", quality=int(os.getenv("IMG_JPEG_QUALITY", "75")), optimize=True, progressive=True)
+                processed.append((key, out.getvalue(), orig_name))
+            except Exception:
+                # Als Pillow faalt, val terug op originele bytes
+                processed.append((key, img_bytes, orig_name))
+        fotos = processed
+    except Exception:
+        pass
+
+    # Totale payload limiter (bijv. 12 MB voor alle foto's samen)
+    try:
+        total_bytes = sum(len(b) for _, b, _ in fotos)
+        max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "12")) * 1024 * 1024
+        if total_bytes > max_total:
+            # Trim of weiger extra foto's boven limiet
+            acc = 0
+            limited = []
+            for tup in fotos:
+                acc += len(tup[1])
+                if acc <= max_total:
+                    limited.append(tup)
+                else:
+                    break
+            fotos = limited
+    except Exception:
+        pass
+            now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
     pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
     c.setFont("Helvetica-Bold", 13); c.drawString(2*cm, h-2*cm, f"Opdrachtbon · {now}")
     c.setFont("Helvetica", 11); y = h-3.2*cm
