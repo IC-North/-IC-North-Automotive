@@ -1,6 +1,6 @@
 
 from mailer import build_message, send_email, MailConfigError
-import os, re, datetime, requests
+import os, re, datetime, requests, traceback
 from io import BytesIO
 
 def safe_save_jpeg(im, out, quality):
@@ -315,6 +315,15 @@ def submit():
             except Exception:
                 processed.append((key, img_bytes, orig_name))
         fotos = processed
+
+    # Upload guards
+    safe_fotos = []
+    for key, data, name in fotos:
+        if not data or len(data) == 0: 
+            continue
+        safe_fotos.append((key, data, name))
+    fotos = safe_fotos[:5]  # max 5
+
     except Exception:
         pass
         # Totale payload limiter (bijv. 12 MB voor alle foto's samen)
@@ -417,6 +426,10 @@ def robots(): return "User-agent: *\nDisallow:", 200, {"Content-Type": "text/pla
 
 @app.errorhandler(500)
 def internal_error(e):
+    tb = traceback.format_exc()
+    print('[500]', e, tb)
+    if os.getenv('DIAG','0')=='1':
+        return (f"<h1>Interne serverfout</h1><pre>{tb}</pre>"), 500
     return ("<h1>Interne serverfout</h1><p>Er ging iets mis bij het verwerken. "
             "Ga <a href='/'>&larr; terug</a> en probeer opnieuw. "
             "Als dit blijft gebeuren, probeer minder/lager-resolutie foto's of neem contact op.</p>"), 500
