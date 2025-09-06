@@ -316,6 +316,9 @@ def submit():
                 processed.append((key, img_bytes, orig_name))
         fotos = processed
 
+    except Exception:
+        pass
+
     # Upload guards
     safe_fotos = []
     for key, data, name in fotos:
@@ -324,25 +327,23 @@ def submit():
         safe_fotos.append((key, data, name))
     fotos = safe_fotos[:5]  # max 5
 
+        # Totale payload limiter (bijv. 12 MB voor alle foto's samen)
+    try:
+        total_bytes = sum(len(b) for _, b, _ in fotos)
+        max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "4")) * 1024 * 1024
+        if total_bytes > max_total:
+            # Trim of weiger extra foto's boven limiet
+            acc = 0
+            limited = []
+            for tup in fotos:
+                acc += len(tup[1])
+                if acc <= max_total:
+                    limited.append(tup)
+                else:
+                    break
+            fotos = limited
     except Exception:
         pass
-        # Totale payload limiter (bijv. 12 MB voor alle foto's samen)
-        try:
-            total_bytes = sum(len(b) for _, b, _ in fotos)
-            max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "4")) * 1024 * 1024
-            if total_bytes > max_total:
-                # Trim of weiger extra foto's boven limiet
-                acc = 0
-                limited = []
-                for tup in fotos:
-                    acc += len(tup[1])
-                    if acc <= max_total:
-                        limited.append(tup)
-                    else:
-                        break
-                fotos = limited
-        except Exception:
-            pass
         now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
         pdf_buf = BytesIO()
         c = canvas.Canvas(pdf_buf, pagesize=A4)
