@@ -307,7 +307,7 @@ def submit():
                     pass
     except Exception:
         pass
-     c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
+    c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
     c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier"); c.save()
 
     pdf_bytes = pdf_buf.getvalue(); filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
