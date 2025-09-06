@@ -71,10 +71,7 @@ textarea{ min-height:90px; resize:vertical }
 
     <form action="/submit" method="post" id="bonform">
       <div class="row row-2">
-        <div>
-          <label>Klantnaam</label>
-          <input name="klantnaam" required placeholder="Bedrijf of persoon">
-        </div>
+        <div><label>Klantnaam</label><input name="klantnaam" required placeholder="Bedrijf of persoon"></div>
         <div class="rdw">
           <div style="flex:1">
             <label>Kenteken</label>
@@ -107,9 +104,7 @@ textarea{ min-height:90px; resize:vertical }
       </div>
 
       <div><label>Werkzaamheden</label>
-        <select name="werkzaamheden">
-          <option>Inbouw</option><option>Ombouw</option><option>Overbouw</option><option>Uitbouw</option><option>Servicecall</option>
-        </select>
+        <select name="werkzaamheden"><option>Inbouw</option><option>Ombouw</option><option>Overbouw</option><option>Uitbouw</option><option>Servicecall</option></select>
       </div>
 
       <div><label>Opmerkingen</label><textarea name="opmerkingen" placeholder="Toelichting op uitgevoerde werkzaamheden"></textarea></div>
@@ -138,146 +133,59 @@ textarea{ min-height:90px; resize:vertical }
 </div>
 
 <script>
+let currentTarget = null, html5Scanner = null, stopTimer = null;
+function showErr(msg){ document.getElementById('scanError').textContent = msg || ''; }
+function blurInputs(){ try { document.activeElement && document.activeElement.blur(); } catch(e){} window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+async function openScanner(target){
+  currentTarget = target; blurInputs(); document.getElementById('scanner').style.display='flex'; showErr('');
+  document.getElementById('scanTip').textContent = target==='vin' ? 'Richt op VIN (Code39)' : 'Richt op QR/streepjescode voor IMEI';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+    let devices=[]; try{ devices = await Html5Qrcode.getCameras(); }catch(e){}
+    let back=null; if(devices && devices.length){ back = (devices.find(d=>/back|rear|environment|achter/i.test(d.label)) || devices[devices.length-1]).id; }
+    stream.getTracks().forEach(t=>t.stop());
+
+    const config = { fps: 12, qrbox: 320, aspectRatio: 1.777, rememberLastUsedCamera: true, showTorchButtonIfSupported: true };
+    // Fallback: alleen setten als enum bestaat (Safari-fix)
+    const F = window.Html5QrcodeSupportedFormats;
+    if (F) { config.formatsToSupport = [F.QR_CODE, F.CODE_39, F.CODE_128, F.EAN_13, F.EAN_8]; }
+
+    html5Scanner = new Html5Qrcode("reader");
+    await new Promise(res=>setTimeout(res,80));
+    await html5Scanner.start(back ? { deviceId:{ exact: back } } : { facingMode:"environment" }, config, onScanSuccess, onScanError);
+  } catch(e){ showErr("Kon camera niet starten: " + (e && e.message ? e.message : e)); }
+
+  clearTimeout(stopTimer);
+  stopTimer = setTimeout(()=>{ alert("Geen code gevonden. Probeer meer licht of dichterbij."); closeScanner(); }, 30000);
+}
+
+function onScanSuccess(decodedText){
+  if(currentTarget==='vin'){
+    const cleaned = decodedText.replace(/[^A-Za-z0-9]/g,'').toUpperCase().replace(/[IOQ]/g,'');
+    if(cleaned.length===17){ document.getElementById('vin').value = cleaned; beep(); closeScanner(); }
+  } else {
+    const digits = decodedText.replace(/\D/g,'');
+    const m15 = digits.match(/\d{15}/), m14 = digits.match(/\d{14}/);
+    let out=null; if(m15){ out=m15[0]; } else if(m14){ out=m14[0] + String(luhnCheckDigit14(m14[0])); }
+    if(out){ document.getElementById('imei').value = out; beep(); closeScanner(); }
+  }
+}
+function onScanError(_e){}
+
+function closeScanner(){ clearTimeout(stopTimer); document.getElementById('scanner').style.display='none'; if(html5Scanner){ html5Scanner.stop().then(()=>{ html5Scanner.clear(); html5Scanner=null; }).catch(()=>{});} }
+function luhnCheckDigit14(s){ let sum=0; for(let i=0;i<14;i++){ let d=parseInt(s[i],10); if(i%2===1){ d*=2; if(d>9) d-=9; } sum+=d; } return (10-(sum%10))%10; }
+function beep(){ try{ const ctx=new (window.AudioContext||window.webkitAudioContext)(); const o=ctx.createOscillator(), g=ctx.createGain(); o.type='sine'; o.frequency.value=880; o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.2,ctx.currentTime+0.01); o.start(); setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.05); o.stop(ctx.currentTime+0.06); },60);}catch(e){} }
+
+// rest utilities
 const kentekenEl = document.getElementById('kenteken');
 kentekenEl.addEventListener('change', () => {
   const raw = kentekenEl.value;
   fetch('/format_kenteken', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({raw})})
     .then(r=>r.json()).then(d=>{ kentekenEl.value = d.formatted; });
 });
-
-function haalRdw(){
-  const k = kentekenEl.value.trim();
-  if(!k){ alert('Vul eerst een kenteken in.'); return; }
-  fetch('/rdw?kenteken='+encodeURIComponent(k))
-    .then(r=>r.json()).then(d=>{
-      if(d && d.success){
-        document.getElementById('merk').value = d.merk || '';
-        document.getElementById('type').value = d.type || '';
-        document.getElementById('bouwjaar').value = d.bouwjaar || '';
-      } else { alert(d.message || 'Geen gegevens gevonden.'); }
-    }).catch(()=>alert('Fout bij RDW ophalen.'));
-}
-
-// ----- Scanner met permission primer -----
-let currentTarget = null;
-let html5Scanner = null;
-let stopTimer = null;
-
-function showErr(msg){
-  document.getElementById('scanError').textContent = msg || '';
-}
-
-function blurInputs(){
-  try { document.activeElement && document.activeElement.blur(); } catch(e){}
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-async function openScanner(target){
-  currentTarget = target;
-  blurInputs();
-  document.getElementById('scanTip').textContent = target==='vin' ? 'Richt op VIN (Code39)' : 'Richt op QR/streepjescode voor IMEI';
-  document.getElementById('scanner').style.display = 'flex';
-  showErr('');
-  try {
-    // 1) Permission primer: vraag camera permissie met facingMode: environment
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
-    // 2) Cameras ophalen met labels (nu beschikbaar na permissie)
-    let devices = [];
-    try { devices = await Html5Qrcode.getCameras(); } catch(e){ /* ignore */ }
-    let back = null;
-    if (devices && devices.length){
-      back = (devices.find(d => /back|rear|environment|achter/i.test(d.label)) || devices[devices.length-1]).id;
-    }
-    // 3) Stop primer stream (we gebruiken html5-qrcode voor de echte preview)
-    stream.getTracks().forEach(t => t.stop());
-
-    // 4) Start html5-qrcode
-    const config = {
-      fps: 12,
-      qrbox: 320,
-      aspectRatio: 1.777,
-      rememberLastUsedCamera: true,
-      showTorchButtonIfSupported: true,
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.QR_CODE,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8
-      ]
-    };
-    html5Scanner = new Html5Qrcode("reader");
-    await new Promise(res => setTimeout(res, 80)); // kleine render-pauze
-    await html5Scanner.start(
-      back ? { deviceId: { exact: back } } : { facingMode: "environment" },
-      config,
-      onScanSuccess,
-      onScanError
-    );
-  } catch(e){
-    showErr("Kon camera niet starten: " + (e && e.message ? e.message : e));
-  }
-
-  clearTimeout(stopTimer);
-  stopTimer = setTimeout(()=>{
-    alert("Geen code gevonden. Probeer meer licht of dichterbij.");
-    closeScanner();
-  }, 30000);
-}
-
-function onScanSuccess(decodedText){
-  if(currentTarget === 'vin'){
-    const cleaned = decodedText.replace(/[^A-Za-z0-9]/g,'').toUpperCase().replace(/[IOQ]/g,'');
-    if(cleaned.length === 17){
-      document.getElementById('vin').value = cleaned; beep(); closeScanner();
-    }
-  } else {
-    const digits = decodedText.replace(/\D/g,'');
-    const m15 = digits.match(/\d{15}/);
-    const m14 = digits.match(/\d{14}/);
-    let out = null;
-    if(m15){ out = m15[0]; }
-    else if(m14){ out = m14[0] + String(luhnCheckDigit14(m14[0])); }
-    if(out){ document.getElementById('imei').value = out; beep(); closeScanner(); }
-  }
-}
-function onScanError(_e){ /* still for perf */ }
-
-function closeScanner(){
-  clearTimeout(stopTimer);
-  document.getElementById('scanner').style.display = 'none';
-  if(html5Scanner){
-    html5Scanner.stop().then(()=>{ html5Scanner.clear(); html5Scanner = null; }).catch(()=>{});
-  }
-}
-
-function luhnCheckDigit14(imei14){
-  let sum = 0;
-  for(let i=0;i<14;i++){ let d = parseInt(imei14[i],10); if(i%2===1){ d*=2; if(d>9) d-=9; } sum += d; }
-  return (10 - (sum % 10)) % 10;
-}
-
-function beep(){
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator(); const gain = ctx.createGain();
-    osc.type = 'sine'; osc.frequency.value = 880;
-    osc.connect(gain); gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(0.001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
-    osc.start();
-    setTimeout(()=>{ gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05); osc.stop(ctx.currentTime + 0.06); }, 60);
-  } catch(e) {}
-}
-
-function formatKenteken() {
-  let input = document.getElementById("kenteken");
-  let val = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (val.length === 6) { val = val.replace(/(.{2})(.{2})(.{2})/, "$1-$2-$3"); }
-  else if (val.length === 7) { val = val.replace(/(.{2})(.{3})(.{2})/, "$1-$2-$3"); }
-  else if (val.length === 8) { val = val.replace(/(.{2})(.{2})(.{3})(.{1})/, "$1-$2-$3-$4"); }
-  input.value = val;
-}
+function haalRdw(){ const k=kentekenEl.value.trim(); if(!k){ alert('Vul eerst een kenteken in.'); return; } fetch('/rdw?kenteken='+encodeURIComponent(k)).then(r=>r.json()).then(d=>{ if(d&&d.success){ document.getElementById('merk').value=d.merk||''; document.getElementById('type').value=d.type||''; document.getElementById('bouwjaar').value=d.bouwjaar||''; } else { alert(d.message || 'Geen gegevens gevonden.'); } }).catch(()=>alert('Fout bij RDW ophalen.')); }
+function formatKenteken(){ let input=document.getElementById("kenteken"); let val=input.value.toUpperCase().replace(/[^A-Z0-9]/g,""); if(val.length===6){ val=val.replace(/(.{2})(.{2})(.{2})/,"$1-$2-$3"); } else if(val.length===7){ val=val.replace(/(.{2})(.{3})(.{2})/,"$1-$2-$3"); } else if(val.length===8){ val=val.replace(/(.{2})(.{2})(.{3})(.{1})/,"$1-$2-$3-$4"); } input.value=val; }
 </script>
 </body>
 </html>
@@ -302,8 +210,8 @@ def rdw():
         if not data:
             return jsonify({"success": False, "message": "Kenteken niet gevonden bij RDW."})
         row = data[0]
-        merk = row.get("merk",""); handels = row.get("handelsbenaming","")
-        det = row.get("datum_eerste_toelating",""); bouwjaar = det[:4] if det and len(det)>=4 else ""
+        merk = row.get("merk",""); handels = row.get("handelsbenaming",""); det = row.get("datum_eerste_toelating","")
+        bouwjaar = det[:4] if det and len(det)>=4 else ""
         return jsonify({"success": True, "merk": merk, "type": handels, "bouwjaar": bouwjaar})
     except Exception as e:
         return jsonify({"success": False, "message": f"RDW fout: {e}"})
