@@ -273,36 +273,45 @@ def submit():
             if data:
                 fotos.append((fname, data, f.filename))
 
-    # Beperk bestandsgrootte: downscale & compress (JPEG)
-    processed = []
-    try:
-        for key, img_bytes, orig_name in fotos:
-            try:
-                im = Image.open(BytesIO(img_bytes))
-                # Forceer kleurmodus voor JPEG
-                if im.mode in ("RGBA", "P"):
-                    im = im.convert("RGB")
-                # Downscale: max 1600px langste zijde
-                max_side = int(os.getenv("IMG_MAX_SIDE", "1600"))
-                w, h = im.size
-                scale = min(1.0, max_side / float(max(w, h))) if max(w,h) else 1.0
-                if scale < 1.0:
-                    im = im.resize((int(w*scale), int(h*scale)))
-                # JPEG opslaan met kwaliteit 75
-                out = BytesIO()
-                im.save(out, format="JPEG", quality=int(os.getenv("IMG_JPEG_QUALITY", "75")), optimize=True, progressive=True)
-                processed.append((key, out.getvalue(), orig_name))
-            except Exception:
-                # Als Pillow faalt, val terug op originele bytes
-                processed.append((key, img_bytes, orig_name))
-        fotos = processed
-    except Exception:
-        pass
 
+# Beperk bestandsgrootte: downscale & compress (JPEG) — agressiever
+processed = []
+try:
+    from PIL import Image, ImageOps
+    target_side = int(os.getenv("IMG_MAX_SIDE", "1024"))  # strakker: 1024px
+    base_quality = int(os.getenv("IMG_JPEG_QUALITY", "70"))
+    min_quality = int(os.getenv("IMG_JPEG_QUALITY_MIN", "55"))
+    target_kb = int(os.getenv("IMG_TARGET_PER_IMAGE_KB", "320"))
+    for key, img_bytes, orig_name in fotos:
+        try:
+            im = Image.open(BytesIO(img_bytes))
+            # Corrigeer oriëntatie en converteer naar RGB (strip EXIF)
+            try:
+                im = ImageOps.exif_transpose(im)
+            except Exception:
+                pass
+            if im.mode not in ("RGB",):
+                im = im.convert("RGB")
+            # Downscale met thumbnail (behoud aspect)
+            im.thumbnail((target_side, target_side))
+            # Kwaliteit stap-gewijs omlaag tot doelgrootte
+            q = base_quality
+            out = BytesIO()
+            im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling="2x2")
+            while out.tell() > (target_kb * 1024) and q > min_quality:
+                q = max(min_quality, q - 5)
+                out.seek(0); out.truncate(0)
+                im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling="2x2")
+            processed.append((key, out.getvalue(), orig_name))
+        except Exception:
+            processed.append((key, img_bytes, orig_name))
+    fotos = processed
+except Exception:
+    pass
     # Totale payload limiter (bijv. 12 MB voor alle foto's samen)
     try:
         total_bytes = sum(len(b) for _, b, _ in fotos)
-        max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "12")) * 1024 * 1024
+        max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "6")) * 1024 * 1024
         if total_bytes > max_total:
             # Trim of weiger extra foto's boven limiet
             acc = 0
@@ -365,11 +374,23 @@ def submit():
     recipients = [*admin_list, *( [klantemail] if klantemail else [] )]
     seen=set(); recipients=[x for x in recipients if not (x in seen or seen.add(x))]
 
+    
+    # Beslis over mail-attachments t.o.v. limiet
+    email_max = int(os.getenv("EMAIL_MAX_MB", "7")) * 1024 * 1024
+    originals = [ (img_bytes, (orig_name or f"{key}.jpg"), "image/jpeg") for key, img_bytes, orig_name in fotos ]
+    attachments_to_send = [(pdf_bytes, filename, "application/pdf")]
+    total_with_originals = len(pdf_bytes) + sum(len(b) for b, _, _ in originals)
+    if total_with_originals <= email_max:
+        attachments_to_send += originals
+    else:
+        # te groot: alleen PDF meesturen
+        pass
+
     subject = os.getenv("MAIL_SUBJECT", "Opdrachtbon – {klantnaam} – {kenteken}").format(klantnaam=klantnaam or "", kenteken=kenteken or "")
     body = os.getenv("MAIL_BODY", "In de bijlage vind je de opdrachtbon (PDF).")
     if sender and recipients:
         try:
-            msg = build_message(subject, body, sender, ", ".join(recipients), attachments=[(pdf_bytes, filename, "application/pdf")] + [ (img_bytes, (orig_name or f"{key}.jpg"), "image/jpeg") for key, img_bytes, orig_name in fotos ])
+            msg = build_message(subject, body, sender, ", ".join(recipients), attachments=attachments_to_send)
             if klantemail: msg['Reply-To'] = klantemail
             send_email(msg)
         except Exception as e:
