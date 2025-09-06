@@ -2,6 +2,15 @@
 from mailer import build_message, send_email, MailConfigError
 import os, re, datetime, requests
 from io import BytesIO
+
+def safe_save_jpeg(im, out, quality):
+    try:
+        im.save(out, format="JPEG", quality=quality, optimize=True, progressive=True, subsampling="4:2:0")
+    except Exception:
+        try:
+            im.save(out, format="JPEG", quality=quality, optimize=True, progressive=True)
+        except Exception:
+            im.save(out, format="JPEG", quality=quality)
 from flask import Flask, render_template_string, request, jsonify, send_file
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -278,10 +287,10 @@ def submit():
     processed = []
     try:
         from PIL import Image, ImageOps
-        target_side = int(os.getenv("IMG_MAX_SIDE", "1024"))  # strakker: 1024px
-        base_quality = int(os.getenv("IMG_JPEG_QUALITY", "70"))
-        min_quality = int(os.getenv("IMG_JPEG_QUALITY_MIN", "55"))
-        target_kb = int(os.getenv("IMG_TARGET_PER_IMAGE_KB", "320"))
+        target_side = int(os.getenv("IMG_MAX_SIDE", "900"))  # strakker: 1024px
+        base_quality = int(os.getenv("IMG_JPEG_QUALITY", "65"))
+        min_quality = int(os.getenv("IMG_JPEG_QUALITY_MIN", "45"))
+        target_kb = int(os.getenv("IMG_TARGET_PER_IMAGE_KB", "200"))
         for key, img_bytes, orig_name in fotos:
             try:
                 im = Image.open(BytesIO(img_bytes))
@@ -297,11 +306,11 @@ def submit():
                 # Kwaliteit stap-gewijs omlaag tot doelgrootte
                 q = base_quality
                 out = BytesIO()
-                im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling="2x2")
+                safe_save_jpeg(im, out, q)
                 while out.tell() > (target_kb * 1024) and q > min_quality:
                     q = max(min_quality, q - 5)
                     out.seek(0); out.truncate(0)
-                    im.save(out, format="JPEG", quality=q, optimize=True, progressive=True, subsampling="2x2")
+                    safe_save_jpeg(im, out, q)
                 processed.append((key, out.getvalue(), orig_name))
             except Exception:
                 processed.append((key, img_bytes, orig_name))
@@ -311,7 +320,7 @@ def submit():
         # Totale payload limiter (bijv. 12 MB voor alle foto's samen)
         try:
             total_bytes = sum(len(b) for _, b, _ in fotos)
-            max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "6")) * 1024 * 1024
+            max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "4")) * 1024 * 1024
             if total_bytes > max_total:
                 # Trim of weiger extra foto's boven limiet
                 acc = 0
@@ -341,6 +350,8 @@ def submit():
     # Foto's toevoegen aan PDF
     try:
         if fotos:
+            # filter te grote restbestanden (>1.5MB) voor PDF-tekening
+            fotos = [t for t in fotos if len(t[1]) <= int(os.getenv("IMG_MAX_SINGLE_FOR_PDF_BYTES", str(1_500_000))) ]
             y -= 0.8*cm
             c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Foto's:"); y -= 0.6*cm
             max_w = w - 4*cm
@@ -376,7 +387,7 @@ def submit():
 
     
     # Beslis over mail-attachments t.o.v. limiet
-    email_max = int(os.getenv("EMAIL_MAX_MB", "7")) * 1024 * 1024
+    email_max = int(os.getenv("EMAIL_MAX_MB", "5")) * 1024 * 1024
     originals = [ (img_bytes, (orig_name or f"{key}.jpg"), "image/jpeg") for key, img_bytes, orig_name in fotos ]
     attachments_to_send = [(pdf_bytes, filename, "application/pdf")]
     total_with_originals = len(pdf_bytes) + sum(len(b) for b, _, _ in originals)
@@ -403,6 +414,13 @@ def submit():
 def healthz(): return "ok", 200
 @app.get("/robots.txt")
 def robots(): return "User-agent: *\nDisallow:", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+@app.errorhandler(500)
+def internal_error(e):
+    return ("<h1>Interne serverfout</h1><p>Er ging iets mis bij het verwerken. "
+            "Ga <a href='/'>&larr; terug</a> en probeer opnieuw. "
+            "Als dit blijft gebeuren, probeer minder/lager-resolutie foto's of neem contact op.</p>"), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
