@@ -69,7 +69,7 @@ textarea{ min-height:90px; resize:vertical }
     <h1>Opdrachtbon</h1>
     <div class="sub">Datum &amp; tijd: <strong>{{now}}</strong></div>
 
-    <form action="/submit" method="post" id="bonform">
+    <form action="/submit" method="post" id="bonform" enctype="multipart/form-data">
       <div class="row row-2">
         <div><label>Klantnaam</label><input name="klantnaam" required placeholder="Bedrijf of persoon"></div>
         <div class="rdw">
@@ -114,7 +114,34 @@ textarea{ min-height:90px; resize:vertical }
         <div><label>Eigen e‑mail (afzender)</label><input type="email" name="senderemail" value="icnorthautomotive@gmail.com" readonly></div>
       </div>
 
-      <button class="btn" type="submit">PDF maken &amp; mailen</button>
+      
+      <div class="row row-2" style="margin-top:16px">
+        <div>
+          <label>Kenteken foto</label>
+          <input type="file" name="foto_kenteken" accept="image/*" capture="environment">
+        </div>
+        <div>
+          <label>IMEI foto</label>
+          <input type="file" name="foto_imei" accept="image/*" capture="environment">
+        </div>
+      </div>
+      <div class="row row-2">
+        <div>
+          <label>Chassisnummer foto</label>
+          <input type="file" name="foto_chassis" accept="image/*" capture="environment">
+        </div>
+        <div>
+          <label>Extra foto 1 (optioneel)</label>
+          <input type="file" name="foto_extra1" accept="image/*" capture="environment">
+        </div>
+      </div>
+      <div class="row row-2">
+        <div>
+          <label>Extra foto 2 (optioneel)</label>
+          <input type="file" name="foto_extra2" accept="image/*" capture="environment">
+        </div>
+      </div>
+<button class="btn" type="submit">PDF maken &amp; mailen</button>
     </form>
 
     <div class="footer-info">Scan werkt op iPhone (Safari) via camera • RDW via open data</div>
