@@ -316,8 +316,6 @@ def submit():
             fotos = limited
     except Exception:
         pass
-            now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
-    pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
     c.setFont("Helvetica-Bold", 13); c.drawString(2*cm, h-2*cm, f"Opdrachtbon · {now}")
     c.setFont("Helvetica", 11); y = h-3.2*cm
     for ln in [f"Klantnaam: {klantnaam}", f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}", f"IMEI: {imei}", f"VIN: {vin}", f"Werkzaamheden: {werkzaamheden}"]:
