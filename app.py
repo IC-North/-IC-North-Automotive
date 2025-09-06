@@ -1,7 +1,7 @@
+
 from mailer import build_message, send_email, MailConfigError
 import os
 import re
-import json
 import datetime
 import requests
 from io import BytesIO
@@ -10,7 +10,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
-
 
 app = Flask(__name__)
 
@@ -23,9 +22,6 @@ def format_kenteken(raw: str) -> str:
     s = re.sub(r"[^A-Za-z0-9]", "", raw).upper()
     parts = re.findall(r"[A-Z]+|\d+", s)
     return "-".join(parts)
-
-def safe_get(d, key, default=""):
-    return d.get(key, default) if isinstance(d, dict) else default
 
 # ---------- Routes ----------
 @app.route("/")
@@ -60,7 +56,7 @@ def index():
         .btn.icon{ display:flex; align-items:center; justify-content:center; gap:8px }
         .actions{ display:grid; grid-template-columns:1fr; gap:12px; margin-top:6px }
         @media (min-width:520px){ .actions{ grid-template-columns:1fr 1fr } }
-        .hint{ font-size:12px; color:var(--muted); margin-top:-10px; margin-bottom:10px }
+        .hint{ font-size:12px; color:#6b7280; margin-top:-10px; margin-bottom:10px }
         .scanner{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:50; align-items:center; justify-content:center; }
         .scanner .box{ background:#0b1220; border-radius:16px; width:min(92vw,620px); padding:12px }
         .scanner header{ color:#cbd5e1; padding:6px 8px 10px; display:flex; justify-content:space-between; align-items:center }
@@ -209,10 +205,8 @@ def index():
             { facingMode: "environment" },
             qrConfig,
             (decodedText, decodedResult) => {
-              // VIN barcodes zijn vaak CODE_39 (zonder I/O/Q) — filter op 17 tekens voor VIN
               if(currentTarget === 'vin'){
                 const cleaned = decodedText.replace(/[^A-Za-z0-9]/g,'').toUpperCase();
-                // VIN mag geen I, O, Q bevatten
                 const vin = cleaned.replace(/[IOQ]/g, '');
                 if(vin.length === 17){
                   document.getElementById('vin').value = vin;
@@ -220,13 +214,13 @@ def index():
                 }
               } else if(currentTarget === 'imei'){
                 const imei = decodedText.replace(/[^0-9]/g,'');
-                if(imei.length >= 14){ // 14 or 15 digits for IMEI
+                if(imei.length >= 14){
                   document.getElementById('imei').value = imei;
                   closeScanner();
                 }
               }
             },
-            (errorMessage) => { /* ignore scan errors for performance */ }
+            (errorMessage) => { /* ignore */ }
           ).catch(err => {
             alert("Kon de camera niet starten: " + err);
             closeScanner();
@@ -243,23 +237,23 @@ def index():
           }
         }
       </script>
-    
-<script>
-function formatKenteken() {
-    let input = document.getElementById("kenteken");
-    let val = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (val.length === 6) {
-        val = val.replace(/(.{2})(.{2})(.{2})/, "$1-$2-$3");
-    } else if (val.length === 7) {
-        val = val.replace(/(.{2})(.{3})(.{2})/, "$1-$2-$3");
-    } else if (val.length === 8) {
-        val = val.replace(/(.{2})(.{2})(.{3})(.{1})/, "$1-$2-$3-$4");
-    }
-    input.value = val;
-}
-</script>
 
-</body>
+      <script>
+      function formatKenteken() {
+          let input = document.getElementById("kenteken");
+          let val = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+          if (val.length === 6) {
+              val = val.replace(/(.{2})(.{2})(.{2})/, "$1-$2-$3");
+          } else if (val.length === 7) {
+              val = val.replace(/(.{2})(.{3})(.{2})/, "$1-$2-$3");
+          } else if (val.length === 8) {
+              val = val.replace(/(.{2})(.{2})(.{3})(.{1})/, "$1-$2-$3-$4");
+          }
+          input.value = val;
+      }
+      </script>
+
+    </body>
     </html>
     """
     return render_template_string(html, now=now)
@@ -277,7 +271,6 @@ def rdw():
     if not k:
         return jsonify({"success": False, "message": "Geen kenteken opgegeven."})
     try:
-        # RDW open data: basisgegevens voertuigen
         url = "https://opendata.rdw.nl/resource/m9d7-ebf2.json"
         resp = requests.get(url, params={"kenteken": k}, timeout=8)
         data = resp.json() if resp.ok else []
@@ -286,7 +279,6 @@ def rdw():
         row = data[0]
         merk = row.get("merk","")
         handels = row.get("handelsbenaming","")
-        # Datum eerste toelating kan 'YYYYMMDD' zijn
         det = row.get("datum_eerste_toelating","")
         bouwjaar = det[:4] if det and len(det)>=4 else ""
         return jsonify({"success": True, "merk": merk, "type": handels, "bouwjaar": bouwjaar})
@@ -304,12 +296,11 @@ def submit():
     vin = request.form.get("vin","")
     werkzaamheden = request.form.get("werkzaamheden","")
     opmerkingen = request.form.get("opmerkingen","")
-    klantemail = request.form.get("klantemail","")
-    senderemail = request.form.get("senderemail","icnorthautomotive@gmail.com")
+    klantemail = (request.form.get("klantemail","") or "").strip()
 
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
 
-    # Maak PDF (alleen voorbeeld, mailen kan apart worden geconfigureerd)
+    # --- PDF maken ---
     pdf_buf = BytesIO()
     c = canvas.Canvas(pdf_buf, pagesize=A4)
     width, height = A4
@@ -329,12 +320,11 @@ def submit():
     for ln in lines:
         c.drawString(2*cm, y, ln); y -= 1.0*cm
 
-    # Opmerkingen blok
     c.setFont("Helvetica-Bold", 11)
     c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
     c.setFont("Helvetica", 10)
     textobj = c.beginText(2*cm, y)
-    for para_line in opmerkingen.splitlines() or ["-"]:
+    for para_line in (opmerkingen or "-").splitlines():
         textobj.textLine(para_line)
     c.drawText(textobj)
 
@@ -343,73 +333,51 @@ def submit():
     c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier")
     c.save()
 
-    
-    # --- E-mail verzenden (optioneel) ---
-    # Gebruik de afzender uit het formulier als gebruikersnaam; wachtwoord via env SMTP_PASSWORD (Gmail app-wachtwoord aanbevolen).
-    senderemail = (request.form.get("senderemail") or "").strip()
-    klantemail = (request.form.get("klantemail") or "").strip()
-    admin_bcc = os.environ.get("RECEIVER_EMAIL", "").strip()
-    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_password = os.environ.get("SMTP_PASSWORD", "")
-    subject_text = os.environ.get("MAIL_SUBJECT", "Opdrachtbon – {klantnaam} – {kenteken}").format(klantnaam=klantnaam or "", kenteken=kenteken or "")
-    body_text = os.environ.get("MAIL_BODY", "In de bijlage vind je de opdrachtbon (PDF).")
+    # Bytes + bestandsnaam
+    pdf_bytes = pdf_buf.getvalue()
+    filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
+    # --- Mail via mailer.py ---
+    sender = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USER")  # jouw Gmail
+    admin_rcpt = os.getenv("RECEIVER_EMAIL")
+    subject_text = os.getenv("MAIL_SUBJECT", "Opdrachtbon – {klantnaam} – {kenteken}").format(
+        klantnaam=klantnaam or "", kenteken=kenteken or ""
+    )
+    body_text = os.getenv("MAIL_BODY", "In de bijlage vind je de opdrachtbon (PDF).")
+
+    recipients = [r for r in [admin_rcpt, klantemail] if r]
 
     sent = False
     send_error = None
-    tos = [e for e in [klantemail, admin_bcc] if e]
-
-    if senderemail and smtp_password and tos:
+    if sender and recipients:
         try:
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.application import MIMEApplication
-            from email.mime.text import MIMEText
-            import smtplib, socket
-            socket.setdefaulttimeout(10)
-
-            msg = MIMEMultipart()
-            msg["From"] = senderemail
-            msg["To"] = ", ".join(tos)
-            msg["Subject"] = subject_text
-            msg.attach(MIMEText(body_text, "plain", "utf-8"))
-
-            part = MIMEApplication(pdf_buf.getvalue(), _subtype="pdf")
-            part.add_header("Content-Disposition", "attachment", filename=filename)
-            msg.attach(part)
-
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as s:
-                s.starttls()
-                s.login(senderemail, smtp_password)
-                s.sendmail(senderemail, tos, msg.as_string())
+            to_header = ", ".join(recipients)
+            msg = build_message(
+                subject=subject_text,
+                body_text=body_text,
+                sender=sender,
+                recipient=to_header,
+                attachments=[(pdf_bytes, filename, "application/pdf")]
+            )
+            status = send_email(msg)
+            print(f"[mail] {status} → To: {to_header}")
             sent = True
         except Exception as e:
             send_error = str(e)
+            print(f"[mail] send error: {send_error}")
 
-    # Download fallback en statusmelding
+    # PDF als download teruggeven
     pdf_buf.seek(0)
-    filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-
     if sent:
-        # Laat ook download toe, met melding in bestandsnaam
         return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
-    elif send_error:
-        # Stuur bestand toch terug, met foutmelding in bestandsnaam
-        fail_name = filename.replace(".pdf", "_MAIL_FOUT.pdf")
-        return send_file(pdf_buf, as_attachment=True, download_name=fail_name, mimetype="application/pdf")
     else:
-        # Geen e-mailconfig of ontvangers: alleen download
-        return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
+        fail_name = filename if not send_error else filename.replace(".pdf", "_MAIL_FOUT.pdf")
+        return send_file(pdf_buf, as_attachment=True, download_name=fail_name, mimetype="application/pdf")
 
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
-
-
+# --- Health & debug ---
 @app.get("/healthz")
 def healthz():
     return "ok", 200
-
 
 @app.get("/debug/send-test")
 def send_test():
@@ -423,3 +391,23 @@ def send_test():
     )
     status = send_email(msg)
     return {"ok": True, "status": status}
+
+@app.get("/debug/env")
+def debug_env():
+    def mask(v):
+        if v is None: return None
+        return f"{len(v)} chars"
+    return {
+        "SMTP_HOST": os.getenv("SMTP_HOST"),
+        "SMTP_PORT": os.getenv("SMTP_PORT"),
+        "SMTP_STARTTLS": os.getenv("SMTP_STARTTLS"),
+        "SMTP_USE_SSL": os.getenv("SMTP_USE_SSL"),
+        "SENDER_EMAIL": os.getenv("SENDER_EMAIL"),
+        "RECEIVER_EMAIL": os.getenv("RECEIVER_EMAIL"),
+        "SMTP_USER": os.getenv("SMTP_USER"),
+        "SMTP_PASSWORD_len": mask(os.getenv("SMTP_PASSWORD")),
+    }
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
