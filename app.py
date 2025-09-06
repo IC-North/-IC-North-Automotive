@@ -233,6 +233,134 @@ kentekenEl.addEventListener('change', () => {
 function haalRdw(){ const k=kentekenEl.value.trim(); if(!k){ alert('Vul eerst een kenteken in.'); return; } fetch('/rdw?kenteken='+encodeURIComponent(k)).then(r=>r.json()).then(d=>{ if(d&&d.success){ document.getElementById('merk').value=d.merk||''; document.getElementById('type').value=d.type||''; document.getElementById('bouwjaar').value=d.bouwjaar||''; } else { alert(d.message || 'Geen gegevens gevonden.'); } }).catch(()=>alert('Fout bij RDW ophalen.')); }
 function formatKenteken(){ let input=document.getElementById("kenteken"); let val=input.value.toUpperCase().replace(/[^A-Z0-9]/g,""); if(val.length===6){ val=val.replace(/(.{2})(.{2})(.{2})/,"$1-$2-$3"); } else if(val.length===7){ val=val.replace(/(.{2})(.{3})(.{2})/,"$1-$2-$3"); } else if(val.length===8){ val=val.replace(/(.{2})(.{2})(.{3})(.{1})/,"$1-$2-$3-$4"); } input.value=val; }
 </script>
+<script>
+(function(){
+  const FORM_ID = "bonform";
+  const FILE_FIELDS = ["foto_kenteken","foto_imei","foto_chassis","foto_extra1","foto_extra2"];
+  const MAX_SIDE = 900;           // pixels
+  const TARGET_BYTES = 220 * 1024;// ~220KB per foto
+  const MIN_QUALITY = 0.5;        // lower bound
+  const START_QUALITY = 0.7;      // start jpeg quality
+  const STEP_QUALITY = 0.05;
+
+  function dataURLToBlob(dataURL){
+    const parts = dataURL.split(',');
+    const byteString = atob(parts[1]);
+    const mimeString = parts[0].split(':')[1].split(';')[0] || 'image/jpeg';
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for(let i=0;i<byteString.length;i++) ia[i]=byteString.charCodeAt(i);
+    return new Blob([ab], {type: mimeString});
+  }
+
+  function loadImage(file){
+    return new Promise((resolve,reject)=>{
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = ()=>{ resolve({img, url}); };
+      img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error("image load failed")); };
+      img.src = url;
+    });
+  }
+
+  async function compressFile(file){
+    try{
+      const {img, url} = await loadImage(file);
+      const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      const ratio = Math.min(1, MAX_SIDE / Math.max(w,h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(w*ratio));
+      canvas.height = Math.max(1, Math.round(h*ratio));
+      const ctx = canvas.getContext('2d', { alpha: false });
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+
+      let q = START_QUALITY;
+      let blob = await new Promise(res=>canvas.toBlob(res, 'image/jpeg', q));
+      // Gradually lower quality until under target (or min quality)
+      while (blob && blob.size > TARGET_BYTES && q > MIN_QUALITY){
+        q = Math.max(MIN_QUALITY, q - STEP_QUALITY);
+        blob = await new Promise(res=>canvas.toBlob(res, 'image/jpeg', q));
+      }
+      // Fallback to dataURL->Blob if toBlob returned null
+      if(!blob){
+        const dataURL = canvas.toDataURL('image/jpeg', q);
+        blob = dataURLToBlob(dataURL);
+      }
+      // Name: keep original-ish
+      const name = (file.name && file.name.replace(/\.[^.]+$/, '')) || 'foto';
+      const out = new File([blob], name + ".jpg", { type: 'image/jpeg' });
+      return out;
+    }catch(e){
+      // if browser can't decode (e.g., HEIC), return original file as-is
+      return file;
+    }
+  }
+
+  async function handleSubmit(ev){
+    try{
+      const form = document.getElementById(FORM_ID);
+      if(!form) return;
+      ev.preventDefault();
+
+      // visual feedback
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = "Versturen..."; }
+
+      const formData = new FormData();
+      // copy all non-file fields
+      const elements = form.elements;
+      for(let i=0;i<elements.length;i++){
+        const el = elements[i];
+        if(!el.name) continue;
+        if(el.type === 'file') continue;
+        if((el.type === 'checkbox' || el.type === 'radio') && !el.checked) continue;
+        formData.append(el.name, el.value);
+      }
+      // process file fields
+      for(const name of FILE_FIELDS){
+        const input = form.querySelector(`input[name="${name}"]`);
+        if(!input || !input.files || !input.files[0]) continue;
+        const file = input.files[0];
+        const small = await compressFile(file);
+        formData.append(name, small, small.name || (name + ".jpg"));
+      }
+
+      // submit via fetch
+      const resp = await fetch(form.action, { method: 'POST', body: formData });
+      if(!resp.ok){
+        const text = await resp.text();
+        alert("Versturen mislukt (" + resp.status + "). Probeer kleinere foto's.
+" + (text || ""));
+      }else{
+        // try to download PDF
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'opdrachtbon.pdf'; document.body.appendChild(a); a.click();
+        setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000);
+        // reset form
+        form.reset();
+      }
+    }catch(e){
+      console.error("submit error", e);
+      alert("Versturen is mislukt door een fout. Probeer het opnieuw.");
+    }finally{
+      const form = document.getElementById(FORM_ID);
+      const submitBtn = form ? form.querySelector('button[type="submit"]') : null;
+      if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = "Verstuur opdrachtbon"; }
+    }
+  }
+
+  window.addEventListener('load', ()=>{
+    const form = document.getElementById(FORM_ID);
+    if(form){
+      form.addEventListener('submit', handleSubmit, { passive: false });
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
     """
