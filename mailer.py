@@ -15,10 +15,6 @@ def _bool_env(name: str, default: bool=False) -> bool:
 
 def build_message(subject: str, body_text: str, sender: str, recipient: str,
                   attachments: Optional[Iterable[Tuple[bytes, str, str]]] = None) -> EmailMessage:
-    """
-    attachments: iterable of tuples (content_bytes, filename, mime_type)
-    mime_type like 'application/pdf' or 'image/png'
-    """
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = sender
@@ -33,17 +29,6 @@ def build_message(subject: str, body_text: str, sender: str, recipient: str,
     return msg
 
 def send_email(msg: EmailMessage) -> str:
-    """Send an EmailMessage using SMTP_* env vars.
-    Returns a short status string for logging. Raises MailConfigError on missing config.
-    Environment variables:
-      - SMTP_HOST (required)
-      - SMTP_PORT (optional; default 587 for STARTTLS, or 465 for SSL if SMTP_USE_SSL=1)
-      - SMTP_USER (optional but recommended)
-      - SMTP_PASSWORD (optional but required if server needs auth)
-      - SMTP_USE_SSL (bool, default False) : connect via SMTP_SSL on port 465
-      - SMTP_STARTTLS (bool, default True) : upgrade with starttls() after EHLO (when not using SSL)
-      - SMTP_TIMEOUT (seconds; default 20)
-    """
     host = os.getenv('SMTP_HOST')
     if not host:
         raise MailConfigError("SMTP_HOST is not set")

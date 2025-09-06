@@ -11,20 +11,9 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 
-"""
-IC‑North Automotive — Production app.py
-- Formulier met RDW-lookup en PDF-generatie
-- Mail via Gmail SMTP (env vars)
-- Reply-To ingesteld op klant e-mail (indien ingevuld)
-- /healthz endpoint (voor uptime checks)
-"""
-
 app = Flask(__name__)
 
-# ---------- Helpers ----------
 def format_kenteken(raw: str) -> str:
-    """Zet kenteken om naar hoofdletters en plaats streepjes tussen letter-/cijferblokken.
-    Voorbeeld: 'vgk91x' -> 'VGK-91-X'  |  '12ab34' -> '12-AB-34'"""
     if not raw:
         return ""
     s = re.sub(r"[^A-Za-z0-9]", "", raw).upper()
@@ -36,7 +25,6 @@ def split_emails(raw: str):
         return []
     return [e.strip() for e in re.split(r"[;,]", raw) if e.strip()]
 
-# ---------- Routes ----------
 @app.route("/")
 def index():
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
@@ -70,12 +58,12 @@ def index():
         .actions{ display:grid; grid-template-columns:1fr; gap:12px; margin-top:6px }
         @media (min-width:520px){ .actions{ grid-template-columns:1fr 1fr } }
         .hint{ font-size:12px; color:#6b7280; margin-top:-10px; margin-bottom:10px }
-        .scanner{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:50; align-items:center; justify-content:center; }
-        .scanner .box{ background:#0b1220; border-radius:16px; width:min(92vw,620px); padding:12px }
+        .scanner{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:9999; align-items:center; justify-content:center; }
+        .scanner .box{ background:#0b1220; border-radius:16px; width:min(96vw,720px); padding:12px; }
         .scanner header{ color:#cbd5e1; padding:6px 8px 10px; display:flex; justify-content:space-between; align-items:center }
+        .scanner header small{ color:#94a3b8 }
         .scanner button{ background:#111827; color:#fff; border:0; border-radius:10px; padding:8px 12px; cursor:pointer }
-        .rdw{ display:flex; gap:10px; align-items:end }
-        .rdw button{ white-space:nowrap }
+        #reader{ width:100%; height:60vh; background:#0b1220; }
         .footer-info{ color:#9ca3af; font-size:12px; text-align:center; margin-top:8px }
       </style>
     </head>
@@ -102,18 +90,9 @@ def index():
             </div>
 
             <div class="row row-3">
-              <div>
-                <label>Merk</label>
-                <input id="merk" name="merk" readonly>
-              </div>
-              <div>
-                <label>Type</label>
-                <input id="type" name="type" readonly>
-              </div>
-              <div>
-                <label>Bouwjaar</label>
-                <input id="bouwjaar" name="bouwjaar" readonly>
-              </div>
+              <div><label>Merk</label><input id="merk" name="merk" readonly></div>
+              <div><label>Type</label><input id="type" name="type" readonly></div>
+              <div><label>Bouwjaar</label><input id="bouwjaar" name="bouwjaar" readonly></div>
             </div>
 
             <div class="row row-2">
@@ -123,6 +102,7 @@ def index():
                 <div class="actions">
                   <button type="button" class="btn icon" onclick="openScanner('imei')">Scan IMEI</button>
                 </div>
+                <div class="hint">Ondersteunt QR, Code128, Code39, EAN-13/8. Voegt checkdigit toe bij 14 cijfers.</div>
               </div>
               <div>
                 <label>VIN (chassisnummer – 17 tekens)</label>
@@ -130,34 +110,21 @@ def index():
                 <div class="actions">
                   <button type="button" class="btn icon" onclick="openScanner('vin')">Scan VIN</button>
                 </div>
+                <div class="hint">Verwijdert automatisch I/O/Q en accepteert exact 17 tekens.</div>
               </div>
             </div>
 
-            <div>
-              <label>Werkzaamheden</label>
+            <div><label>Werkzaamheden</label>
               <select name="werkzaamheden">
-                <option>Inbouw</option>
-                <option>Ombouw</option>
-                <option>Overbouw</option>
-                <option>Uitbouw</option>
-                <option>Servicecall</option>
+                <option>Inbouw</option><option>Ombouw</option><option>Overbouw</option><option>Uitbouw</option><option>Servicecall</option>
               </select>
             </div>
 
-            <div>
-              <label>Opmerkingen</label>
-              <textarea name="opmerkingen" placeholder="Toelichting op uitgevoerde werkzaamheden"></textarea>
-            </div>
+            <div><label>Opmerkingen</label><textarea name="opmerkingen" placeholder="Toelichting op uitgevoerde werkzaamheden"></textarea></div>
 
             <div class="row row-2">
-              <div>
-                <label>Klant e‑mail</label>
-                <input type="email" name="klantemail" placeholder="klant@domein.nl">
-              </div>
-              <div>
-                <label>Eigen e‑mail (afzender)</label>
-                <input type="email" name="senderemail" placeholder="icnorthautomotive@gmail.com" value="icnorthautomotive@gmail.com" readonly>
-              </div>
+              <div><label>Klant e‑mail</label><input type="email" name="klantemail" placeholder="klant@domein.nl"></div>
+              <div><label>Eigen e‑mail (afzender)</label><input type="email" name="senderemail" placeholder="icnorthautomotive@gmail.com" value="icnorthautomotive@gmail.com" readonly></div>
             </div>
 
             <button class="btn" type="submit">PDF maken &amp; mailen</button>
@@ -167,19 +134,17 @@ def index():
         </div>
       </div>
 
-      <!-- Scanner modal -->
       <div class="scanner" id="scanner">
         <div class="box">
           <header>
             <div>Camera scanner</div>
-            <button onclick="closeScanner()">Sluiten</button>
+            <div><small id="scanTip">Richt op code • goede belichting</small> <button onclick="closeScanner()">Sluiten</button></div>
           </header>
-          <div id="reader" style="width:100%;"></div>
+          <div id="reader"></div>
         </div>
       </div>
 
       <script>
-        // Kenteken automatisch formatteren
         const kentekenEl = document.getElementById('kenteken');
         kentekenEl.addEventListener('change', () => {
           const raw = kentekenEl.value;
@@ -187,7 +152,6 @@ def index():
             .then(r=>r.json()).then(d=>{ kentekenEl.value = d.formatted; });
         });
 
-        // RDW halen
         function haalRdw(){
           const k = kentekenEl.value.trim();
           if(!k){ alert('Vul eerst een kenteken in.'); return; }
@@ -203,56 +167,135 @@ def index():
             }).catch(()=>alert('Fout bij RDW ophalen.'));
         }
 
-        // Scanner (html5-qrcode)
+        // ---- iOS camera-friendly scanner ----
         let currentTarget = null;
         let html5Scanner = null;
+        let stopTimer = null;
+
+        function blurInputs(){
+          try { document.activeElement && document.activeElement.blur(); } catch(e){}
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function luhnCheckDigit14(imei14){
+          let sum = 0;
+          for(let i=0;i<14;i++){
+            let d = parseInt(imei14[i],10);
+            if(i % 2 === 1){ d = d*2; if(d>9) d = d-9; }
+            sum += d;
+          }
+          return (10 - (sum % 10)) % 10;
+        }
 
         function openScanner(target){
           currentTarget = target;
-          document.getElementById('scanner').style.display = 'flex';
+          blurInputs();
+          const overlay = document.getElementById('scanner');
+          overlay.style.display = 'flex';
+          document.getElementById('scanTip').textContent = target==='vin' ? 'Richt op VIN (Code39). Goede belichting.' : 'Richt op QR/streepjescode voor IMEI.';
 
-          const qrConfig = { fps: 10, qrbox: 240, rememberLastUsedCamera: true, formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8 ] };
+          const startWithDevice = (deviceId) => {
+            const config = {
+              fps: 10,
+              qrbox: 300,
+              aspectRatio: 1.777,
+              rememberLastUsedCamera: true,
+              showTorchButtonIfSupported: true,
+              formatsToSupport: [
+                Html5QrcodeSupportedFormats.QR_CODE,
+                Html5QrcodeSupportedFormats.CODE_39,
+                Html5QrcodeSupportedFormats.CODE_128,
+                Html5QrcodeSupportedFormats.EAN_13,
+                Html5QrcodeSupportedFormats.EAN_8
+              ]
+            };
+            html5Scanner = new Html5Qrcode("reader");
+            // kleine delay zodat iOS de overlay kan renderen (anders soms geen video)
+            setTimeout(()=>{
+              html5Scanner.start(
+                deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "environment" },
+                config,
+                onScanSuccess,
+                onScanError
+              ).catch(err => {
+                alert("Kon de camera niet starten: " + err);
+                closeScanner();
+              });
+            }, 100);
+          };
 
-          html5Scanner = new Html5Qrcode("reader");
-          html5Scanner.start(
-            { facingMode: "environment" },
-            qrConfig,
-            (decodedText) => {
-              if(currentTarget === 'vin'){
-                const cleaned = decodedText.replace(/[^A-Za-z0-9]/g,'').toUpperCase();
-                const vin = cleaned.replace(/[IOQ]/g, '');
-                if(vin.length === 17){
-                  document.getElementById('vin').value = vin;
-                  closeScanner();
-                }
-              } else if(currentTarget === 'imei'){
-                const imei = decodedText.replace(/[^0-9]/g,'');
-                if(imei.length >= 14){
-                  document.getElementById('imei').value = imei;
-                  closeScanner();
-                }
+          // Eerst camera's ophalen (iOS geeft dan meteen permissieprompt)
+          if (Html5Qrcode.getCameras) {
+            Html5Qrcode.getCameras().then(devices => {
+              if(devices && devices.length){
+                // meestal is laatste de achtercamera
+                const back = devices[devices.length-1].id;
+                startWithDevice(back);
+              } else {
+                startWithDevice(null);
               }
-            },
-            (errorMessage) => { /* ignore */ }
-          ).catch(err => {
-            alert("Kon de camera niet starten: " + err);
+            }).catch(()=> startWithDevice(null));
+          } else {
+            startWithDevice(null);
+          }
+
+          clearTimeout(stopTimer);
+          stopTimer = setTimeout(()=>{
+            alert("Geen code gevonden. Probeer meer licht of dichterbij.");
             closeScanner();
-          });
+          }, 30000);
         }
 
-        function closeScanner(){
-          document.getElementById('scanner').style.display = 'none';
-          if(html5Scanner){
-            html5Scanner.stop().then(() => {
-              html5Scanner.clear();
-              html5Scanner = null;
-            }).catch(() => {});
+        function onScanSuccess(decodedText){
+          if(currentTarget === 'vin'){
+            const cleaned = decodedText.replace(/[^A-Za-z0-9]/g,'').toUpperCase().replace(/[IOQ]/g,'');
+            if(cleaned.length === 17){
+              document.getElementById('vin').value = cleaned;
+              beep(); closeScanner();
+            }
+          } else {
+            const digits = decodedText.replace(/\D/g,'');
+            const m15 = digits.match(/\d{15}/);
+            const m14 = digits.match(/\d{14}/);
+            let out = null;
+            if(m15){ out = m15[0]; }
+            else if(m14){ out = m14[0] + String(luhnCheckDigit14(m14[0])); }
+            if(out){
+              document.getElementById('imei').value = out;
+              beep(); closeScanner();
+            }
           }
         }
-      </script>
+        function onScanError(_e){ /* stil houden voor performance */ }
 
-      <script>
-      function formatKenteken() {
+        function closeScanner(){
+          clearTimeout(stopTimer);
+          document.getElementById('scanner').style.display = 'none';
+          if(html5Scanner){
+            html5Scanner.stop().then(()=>{
+              html5Scanner.clear();
+              html5Scanner = null;
+            }).catch(()=>{});
+          }
+        }
+
+        function beep(){
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator(); const gain = ctx.createGain();
+            osc.type = 'sine'; osc.frequency.value = 880;
+            osc.connect(gain); gain.connect(ctx.destination);
+            gain.gain.setValueAtTime(0.001, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+            osc.start();
+            setTimeout(()=>{
+              gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
+              osc.stop(ctx.currentTime + 0.06);
+            }, 60);
+          } catch(e){}
+        }
+
+        function formatKenteken() {
           let input = document.getElementById("kenteken");
           let val = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
           if (val.length === 6) {
@@ -263,9 +306,8 @@ def index():
               val = val.replace(/(.{2})(.{2})(.{3})(.{1})/, "$1-$2-$3-$4");
           }
           input.value = val;
-      }
+        }
       </script>
-
     </body>
     </html>
     """
@@ -313,55 +355,40 @@ def submit():
 
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
 
-    # --- PDF maken ---
     pdf_buf = BytesIO()
     c = canvas.Canvas(pdf_buf, pagesize=A4)
     width, height = A4
 
     c.setFont("Helvetica-Bold", 13)
     c.drawString(2*cm, height-2*cm, f"Opdrachtbon · {now}")
-
     c.setFont("Helvetica", 11)
     y = height-3.2*cm
-    lines = [
+    for ln in [
         f"Klantnaam: {klantnaam}",
         f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}",
         f"IMEI: {imei}",
         f"VIN: {vin}",
         f"Werkzaamheden: {werkzaamheden}",
-    ]
-    for ln in lines:
+    ]:
         c.drawString(2*cm, y, ln); y -= 1.0*cm
 
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
-    c.setFont("Helvetica", 10)
-    textobj = c.beginText(2*cm, y)
-    for para_line in (opmerkingen or "-").splitlines():
-        textobj.textLine(para_line)
+    c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
+    c.setFont("Helvetica", 10); textobj = c.beginText(2*cm, y)
+    for para_line in (opmerkingen or "-").splitlines(): textobj.textLine(para_line)
     c.drawText(textobj)
-
-    c.setFillColor(colors.grey)
-    c.setFont("Helvetica-Oblique", 9)
+    c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
     c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier")
     c.save()
 
-    # Bytes + bestandsnaam
     pdf_bytes = pdf_buf.getvalue()
     filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
 
-    # --- Mail via mailer.py ---
-    sender = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USER")  # jouw Gmail
+    sender = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USER")
     admin_raw = os.getenv("RECEIVER_EMAIL")
     admin_list = split_emails(admin_raw)
+    recipients = admin_list[:] + ([klantemail] if klantemail else [])
 
-    recipients = admin_list[:]  # kopie
-    if klantemail:
-        recipients.append(klantemail)
-
-    # de-dup, behoud volgorde
-    seen = set()
-    recipients = [x for x in recipients if not (x in seen or seen.add(x))]
+    seen = set(); recipients = [x for x in recipients if not (x in seen or seen.add(x))]
 
     subject_text = os.getenv("MAIL_SUBJECT", "Opdrachtbon – {klantnaam} – {kenteken}").format(
         klantnaam=klantnaam or "", kenteken=kenteken or ""
@@ -369,37 +396,19 @@ def submit():
     body_text = os.getenv("MAIL_BODY", "In de bijlage vind je de opdrachtbon (PDF).")
 
     sent = False
-    send_error = None
     if sender and recipients:
         try:
             to_header = ", ".join(recipients)
-            msg = build_message(
-                subject=subject_text,
-                body_text=body_text,
-                sender=sender,
-                recipient=to_header,
-                attachments=[(pdf_bytes, filename, "application/pdf")]
-            )
-            # Reply-To zodat antwoorden naar de klant gaan
-            if klantemail:
-                msg['Reply-To'] = klantemail
-
-            status = send_email(msg)
-            print(f"[mail] {status} → To: {to_header}")
-            sent = True
+            msg = build_message(subject_text, body_text, sender, to_header,
+                                attachments=[(pdf_bytes, filename, "application/pdf")])
+            if klantemail: msg['Reply-To'] = klantemail
+            send_email(msg); sent = True
         except Exception as e:
-            send_error = str(e)
-            print(f"[mail] send error: {send_error}")
+            print("[mail] error:", e)
 
-    # PDF als download teruggeven
     pdf_buf.seek(0)
-    if sent:
-        return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
-    else:
-        fail_name = filename if not send_error else filename.replace(".pdf", "_MAIL_FOUT.pdf")
-        return send_file(pdf_buf, as_attachment=True, download_name=fail_name, mimetype="application/pdf")
+    return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
 
-# --- Health & robots ---
 @app.get("/healthz")
 def healthz():
     return "ok", 200
