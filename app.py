@@ -11,6 +11,14 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 
+"""
+IC‑North Automotive — Production app.py
+- Formulier met RDW-lookup en PDF-generatie
+- Mail via Gmail SMTP (env vars)
+- Reply-To ingesteld op klant e-mail (indien ingevuld)
+- /healthz endpoint (voor uptime checks)
+"""
+
 app = Flask(__name__)
 
 # ---------- Helpers ----------
@@ -22,6 +30,11 @@ def format_kenteken(raw: str) -> str:
     s = re.sub(r"[^A-Za-z0-9]", "", raw).upper()
     parts = re.findall(r"[A-Z]+|\d+", s)
     return "-".join(parts)
+
+def split_emails(raw: str):
+    if not raw:
+        return []
+    return [e.strip() for e in re.split(r"[;,]", raw) if e.strip()]
 
 # ---------- Routes ----------
 @app.route("/")
@@ -143,14 +156,14 @@ def index():
               </div>
               <div>
                 <label>Eigen e‑mail (afzender)</label>
-                <input type="email" name="senderemail" placeholder="icnorthautomotive@gmail.com" value="icnorthautomotive@gmail.com">
+                <input type="email" name="senderemail" placeholder="icnorthautomotive@gmail.com" value="icnorthautomotive@gmail.com" readonly>
               </div>
             </div>
 
             <button class="btn" type="submit">PDF maken &amp; mailen</button>
           </form>
 
-          <div class="footer-info">Scan werkt op iPhone (Safari) via camera &nbsp;•&nbsp; RDW via open data</div>
+          <div class="footer-info">Scan werkt op iPhone (Safari) via camera • RDW via open data</div>
         </div>
       </div>
 
@@ -204,7 +217,7 @@ def index():
           html5Scanner.start(
             { facingMode: "environment" },
             qrConfig,
-            (decodedText, decodedResult) => {
+            (decodedText) => {
               if(currentTarget === 'vin'){
                 const cleaned = decodedText.replace(/[^A-Za-z0-9]/g,'').toUpperCase();
                 const vin = cleaned.replace(/[IOQ]/g, '');
@@ -339,13 +352,21 @@ def submit():
 
     # --- Mail via mailer.py ---
     sender = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USER")  # jouw Gmail
-    admin_rcpt = os.getenv("RECEIVER_EMAIL")
+    admin_raw = os.getenv("RECEIVER_EMAIL")
+    admin_list = split_emails(admin_raw)
+
+    recipients = admin_list[:]  # kopie
+    if klantemail:
+        recipients.append(klantemail)
+
+    # de-dup, behoud volgorde
+    seen = set()
+    recipients = [x for x in recipients if not (x in seen or seen.add(x))]
+
     subject_text = os.getenv("MAIL_SUBJECT", "Opdrachtbon – {klantnaam} – {kenteken}").format(
         klantnaam=klantnaam or "", kenteken=kenteken or ""
     )
     body_text = os.getenv("MAIL_BODY", "In de bijlage vind je de opdrachtbon (PDF).")
-
-    recipients = [r for r in [admin_rcpt, klantemail] if r]
 
     sent = False
     send_error = None
@@ -359,6 +380,10 @@ def submit():
                 recipient=to_header,
                 attachments=[(pdf_bytes, filename, "application/pdf")]
             )
+            # Reply-To zodat antwoorden naar de klant gaan
+            if klantemail:
+                msg['Reply-To'] = klantemail
+
             status = send_email(msg)
             print(f"[mail] {status} → To: {to_header}")
             sent = True
@@ -374,40 +399,15 @@ def submit():
         fail_name = filename if not send_error else filename.replace(".pdf", "_MAIL_FOUT.pdf")
         return send_file(pdf_buf, as_attachment=True, download_name=fail_name, mimetype="application/pdf")
 
-# --- Health & debug ---
+# --- Health & robots ---
 @app.get("/healthz")
 def healthz():
     return "ok", 200
 
-@app.get("/debug/send-test")
-def send_test():
-    sender = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USER")
-    rcpt   = os.getenv("RECEIVER_EMAIL") or sender
-    msg = build_message(
-        subject="Test IC-North mail",
-        body_text="Dit is een test vanaf Render.",
-        sender=sender,
-        recipient=rcpt
-    )
-    status = send_email(msg)
-    return {"ok": True, "status": status}
-
-@app.get("/debug/env")
-def debug_env():
-    def mask(v):
-        if v is None: return None
-        return f"{len(v)} chars"
-    return {
-        "SMTP_HOST": os.getenv("SMTP_HOST"),
-        "SMTP_PORT": os.getenv("SMTP_PORT"),
-        "SMTP_STARTTLS": os.getenv("SMTP_STARTTLS"),
-        "SMTP_USE_SSL": os.getenv("SMTP_USE_SSL"),
-        "SENDER_EMAIL": os.getenv("SENDER_EMAIL"),
-        "RECEIVER_EMAIL": os.getenv("RECEIVER_EMAIL"),
-        "SMTP_USER": os.getenv("SMTP_USER"),
-        "SMTP_PASSWORD_len": mask(os.getenv("SMTP_PASSWORD")),
-    }
+@app.get("/robots.txt")
+def robots():
+    return "User-agent: *\nDisallow:", 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)
