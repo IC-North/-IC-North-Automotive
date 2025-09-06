@@ -8,7 +8,35 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
+from PIL import Image, ImageOps
 
+
+def _shrink_for_pdf(img_bytes: bytes, max_side: int = 1200, target_kb: int = 260) -> bytes:
+    """
+    Downscale & recompress image bytes for PDF drawing only.
+    Keeps memory/canvas usage low. Returns JPEG bytes.
+    """
+    try:
+        im = Image.open(BytesIO(img_bytes))
+        try:
+            im = ImageOps.exif_transpose(im)
+        except Exception:
+            pass
+        if im.mode not in ("RGB",):
+            im = im.convert("RGB")
+        # downscale
+        im.thumbnail((max_side, max_side))
+        # compress loop
+        q = 70
+        out = BytesIO()
+        im.save(out, format="JPEG", quality=q, optimize=True, progressive=True)
+        while out.tell() > target_kb*1024 and q > 50:
+            q = max(50, q - 5)
+            out.seek(0); out.truncate(0)
+            im.save(out, format="JPEG", quality=q, optimize=True, progressive=True)
+        return out.getvalue()
+    except Exception:
+        return img_bytes
 app = Flask(__name__)
 
 def format_kenteken(raw: str) -> str:
@@ -264,7 +292,21 @@ def submit():
 
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
     pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
-    c.setFont("Helvetica-Bold", 13); c.drawString(2*cm, h-2*cm, f"Opdrachtbon · {now}")
+    # Header met logo + titel
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.jpg")
+    try:
+        if os.path.exists(logo_path):
+            ir_logo = ImageReader(logo_path)
+            # schaal logo tot max 3.5cm breed en 1.6cm hoog
+            lw, lh = ir_logo.getSize()
+            max_w_cm, max_h_cm = 3.5*cm, 1.6*cm
+            scale = min(max_w_cm/lw, max_h_cm/lh) if lw and lh else 1.0
+            c.drawImage(ir_logo, 2*cm, h-2*cm-1.6*cm, width=lw*scale, height=lh*scale, preserveAspectRatio=True, mask='auto')
+    except Exception:
+        pass
+    c.setFont("Helvetica-Bold", 14); c.drawRightString(w-2*cm, h-2*cm, "Opdrachtbon")
+    c.setFont("Helvetica", 10); c.drawRightString(w-2*cm, h-2*cm-0.5*cm, now)
+
     c.setFont("Helvetica", 11); y = h-3.2*cm
     for ln in [f"Klantnaam: {klantnaam}", f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}", f"IMEI: {imei}", f"VIN: {vin}", f"Werkzaamheden: {werkzaamheden}"]:
         c.drawString(2*cm, y, ln); y -= 1.0*cm
@@ -272,36 +314,65 @@ def submit():
     c.setFont("Helvetica", 10); t = c.beginText(2*cm, y)
     for line in (opmerkingen or "-").splitlines(): t.textLine(line)
     c.drawText(t)
-    # Foto's in de PDF plaatsen (indien aanwezig)
+    # Foto's in de PDF plaatsen (grid op één pagina)
     try:
         if fotos:
-            y -= 0.6*cm
-            c.setFont("Helvetica-Bold", 11); c.setFillColor(colors.black)
-            c.drawString(2*cm, y, "Foto's:"); y -= 0.4*cm
-            max_w = (w - 4*cm); max_h = 9*cm
-            for key, img_bytes, orig in fotos:
+            # verklein bytes per foto voor PDF en label mapping
+            label_map = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}
+            prepared = []
+            for key, img_bytes, orig in fotos[:5]:
+                small = _shrink_for_pdf(img_bytes, max_side=950, target_kb=220)
+                prepared.append((key, small, orig))
+            # beschikbare ruimte berekenen: onder de tekst
+            # y is huidige baseline onder "Opmerkingen"; we reserveren ruimte vanaf y-0.4cm
+            y -= 0.4*cm
+            top = y
+            bottom = 2.2*cm  # boven de footer
+            available_h = max(4*cm, top - bottom)
+            left = 2*cm; right = w - 2*cm; available_w = right - left
+            # grid: 2 kolommen, 3 rijen max (we hebben max 5 foto's)
+            cols = 2
+            rows = (len(prepared)+cols-1)//cols
+            rows = min(rows, 3)
+            cell_w = available_w / cols
+            # labelruimte onder elke foto
+            label_h = 0.35*cm
+            # hoogte per rij zo dat alles past
+            cell_h = available_h / max(rows,1)
+            # cap een maximum fotogrootte binnen cell
+            for idx, (key, small, orig) in enumerate(prepared):
+                row = idx // cols
+                col = idx % cols
+                cx = left + col*cell_w
+                cy_top = top - row*cell_h
                 try:
-                    ir = ImageReader(BytesIO(img_bytes))
+                    ir = ImageReader(BytesIO(small))
                     iw, ih = ir.getSize()
-                    if iw and ih:
-                        scale = min(max_w/iw, max_h/ih)
-                        tw, th = iw*scale, ih*scale
-                        if y - th < 2.5*cm:
-                            c.showPage(); c.setFont("Helvetica", 10); y = h - 2.5*cm
-                        label = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}.get(key, key)
-                        c.setFont("Helvetica-Oblique", 9); c.setFillColor(colors.grey)
-                        c.drawString(2*cm, y, f"{label}: {orig or ''}"); y -= 0.3*cm
-                        c.setFillColor(colors.black)
-                        c.drawImage(ir, 2*cm, y - th, width=tw, height=th, preserveAspectRatio=True, mask='auto')
-                        y -= th + 0.6*cm
-                except Exception as _e:
-                    # Als één foto niet lukt, ga door met de rest
+                    # bereken schaal zodat in cell past met label
+                    max_w = cell_w - 0.4*cm
+                    max_h = cell_h - label_h - 0.25*cm
+                    scale = min(max_w/iw, max_h/ih) if iw and ih else 1.0
+                    tw, th = iw*scale, ih*scale
+                    # centreer binnen cel
+                    img_x = cx + (cell_w - tw)/2
+                    img_y = cy_top - th - 0.15*cm
+                    # teken
+                    c.drawImage(ir, img_x, img_y, width=tw, height=th, preserveAspectRatio=True, mask='auto')
+                    # label
+                    c.setFont("Helvetica", 9); c.setFillColor(colors.grey)
+                    label = f"{label_map.get(key,key)}"
+                    if orig: label += f" · {orig}"
+                    c.drawCentredString(cx + cell_w/2, img_y - 0.1*cm, label[:60])
+                    c.setFillColor(colors.black)
+                except Exception:
                     pass
+            # zet y zodat footer niet overlapt
+            y = bottom + 0.2*cm
     except Exception:
         pass
     c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
     c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier"); c.save()
-
+    
     pdf_bytes = pdf_buf.getvalue(); filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
 
     sender = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USER")
