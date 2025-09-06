@@ -1,26 +1,14 @@
 
 from mailer import build_message, send_email, MailConfigError
-import os, re, datetime, requests, traceback
+import os, re, datetime, requests
 from io import BytesIO
-
-def safe_save_jpeg(im, out, quality):
-    try:
-        im.save(out, format="JPEG", quality=quality, optimize=True, progressive=True, subsampling="4:2:0")
-    except Exception:
-        try:
-            im.save(out, format="JPEG", quality=quality, optimize=True, progressive=True)
-        except Exception:
-            im.save(out, format="JPEG", quality=quality)
 from flask import Flask, render_template_string, request, jsonify, send_file
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
-from reportlab.lib.utils import ImageReader
-from PIL import Image
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_CONTENT_LENGTH_MB', '25')) * 1024 * 1024  # max upload size
 
 def format_kenteken(raw: str) -> str:
     if not raw: return ""
@@ -81,7 +69,7 @@ textarea{ min-height:90px; resize:vertical }
     <h1>Opdrachtbon</h1>
     <div class="sub">Datum &amp; tijd: <strong>{{now}}</strong></div>
 
-    <form action="/submit" method="post" id="bonform" enctype="multipart/form-data">
+    <form action="/submit" method="post" id="bonform">
       <div class="row row-2">
         <div><label>Klantnaam</label><input name="klantnaam" required placeholder="Bedrijf of persoon"></div>
         <div class="rdw">
@@ -126,41 +114,7 @@ textarea{ min-height:90px; resize:vertical }
         <div><label>Eigen e‑mail (afzender)</label><input type="email" name="senderemail" value="icnorthautomotive@gmail.com" readonly></div>
       </div>
 
-      
-      <div class="row row-2" style="margin-top:16px">
-        <div>
-          <label>Kenteken foto</label>
-          <input type="file" name="foto_kenteken" accept="image/*" capture="environment">
-          <div class="hint">Maak of kies een duidelijke foto van het kenteken.</div>
-        </div>
-        <div>
-          <label>IMEI foto</label>
-          <input type="file" name="foto_imei" accept="image/*" capture="environment">
-          <div class="hint">Foto van het IMEI‑nummer (bijv. sticker/label).</div>
-        </div>
-      </div>
-
-      <div class="row row-2">
-        <div>
-          <label>Chassisnummer foto</label>
-          <input type="file" name="foto_chassis" accept="image/*" capture="environment">
-          <div class="hint">Foto van het VIN/chassisnummer.</div>
-        </div>
-        <div>
-          <label>Extra foto 1 (optioneel)</label>
-          <input type="file" name="foto_extra1" accept="image/*" capture="environment">
-          <div class="hint">Optioneel extra beeld (detail of context).</div>
-        </div>
-      </div>
-
-      <div class="row row-2">
-        <div>
-          <label>Extra foto 2 (optioneel)</label>
-          <input type="file" name="foto_extra2" accept="image/*" capture="environment">
-          <div class="hint">Optioneel extra beeld.</div>
-        </div>
-      </div>
-    <button class="btn" type="submit">PDF maken &amp; mailen</button>
+      <button class="btn" type="submit">PDF maken &amp; mailen</button>
     </form>
 
     <div class="footer-info">Scan werkt op iPhone (Safari) via camera • RDW via open data</div>
@@ -233,134 +187,6 @@ kentekenEl.addEventListener('change', () => {
 function haalRdw(){ const k=kentekenEl.value.trim(); if(!k){ alert('Vul eerst een kenteken in.'); return; } fetch('/rdw?kenteken='+encodeURIComponent(k)).then(r=>r.json()).then(d=>{ if(d&&d.success){ document.getElementById('merk').value=d.merk||''; document.getElementById('type').value=d.type||''; document.getElementById('bouwjaar').value=d.bouwjaar||''; } else { alert(d.message || 'Geen gegevens gevonden.'); } }).catch(()=>alert('Fout bij RDW ophalen.')); }
 function formatKenteken(){ let input=document.getElementById("kenteken"); let val=input.value.toUpperCase().replace(/[^A-Z0-9]/g,""); if(val.length===6){ val=val.replace(/(.{2})(.{2})(.{2})/,"$1-$2-$3"); } else if(val.length===7){ val=val.replace(/(.{2})(.{3})(.{2})/,"$1-$2-$3"); } else if(val.length===8){ val=val.replace(/(.{2})(.{2})(.{3})(.{1})/,"$1-$2-$3-$4"); } input.value=val; }
 </script>
-<script>
-(function(){
-  const FORM_ID = "bonform";
-  const FILE_FIELDS = ["foto_kenteken","foto_imei","foto_chassis","foto_extra1","foto_extra2"];
-  const MAX_SIDE = 900;           // pixels
-  const TARGET_BYTES = 220 * 1024;// ~220KB per foto
-  const MIN_QUALITY = 0.5;        // lower bound
-  const START_QUALITY = 0.7;      // start jpeg quality
-  const STEP_QUALITY = 0.05;
-
-  function dataURLToBlob(dataURL){
-    const parts = dataURL.split(',');
-    const byteString = atob(parts[1]);
-    const mimeString = parts[0].split(':')[1].split(';')[0] || 'image/jpeg';
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for(let i=0;i<byteString.length;i++) ia[i]=byteString.charCodeAt(i);
-    return new Blob([ab], {type: mimeString});
-  }
-
-  function loadImage(file){
-    return new Promise((resolve,reject)=>{
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = ()=>{ resolve({img, url}); };
-      img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error("image load failed")); };
-      img.src = url;
-    });
-  }
-
-  async function compressFile(file){
-    try{
-      const {img, url} = await loadImage(file);
-      const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
-      const ratio = Math.min(1, MAX_SIDE / Math.max(w,h));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(w*ratio));
-      canvas.height = Math.max(1, Math.round(h*ratio));
-      const ctx = canvas.getContext('2d', { alpha: false });
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-
-      let q = START_QUALITY;
-      let blob = await new Promise(res=>canvas.toBlob(res, 'image/jpeg', q));
-      // Gradually lower quality until under target (or min quality)
-      while (blob && blob.size > TARGET_BYTES && q > MIN_QUALITY){
-        q = Math.max(MIN_QUALITY, q - STEP_QUALITY);
-        blob = await new Promise(res=>canvas.toBlob(res, 'image/jpeg', q));
-      }
-      // Fallback to dataURL->Blob if toBlob returned null
-      if(!blob){
-        const dataURL = canvas.toDataURL('image/jpeg', q);
-        blob = dataURLToBlob(dataURL);
-      }
-      // Name: keep original-ish
-      const name = (file.name && file.name.replace(/\.[^.]+$/, '')) || 'foto';
-      const out = new File([blob], name + ".jpg", { type: 'image/jpeg' });
-      return out;
-    }catch(e){
-      // if browser can't decode (e.g., HEIC), return original file as-is
-      return file;
-    }
-  }
-
-  async function handleSubmit(ev){
-    try{
-      const form = document.getElementById(FORM_ID);
-      if(!form) return;
-      ev.preventDefault();
-
-      // visual feedback
-      const submitBtn = form.querySelector('button[type="submit"]');
-      if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = "Versturen..."; }
-
-      const formData = new FormData();
-      // copy all non-file fields
-      const elements = form.elements;
-      for(let i=0;i<elements.length;i++){
-        const el = elements[i];
-        if(!el.name) continue;
-        if(el.type === 'file') continue;
-        if((el.type === 'checkbox' || el.type === 'radio') && !el.checked) continue;
-        formData.append(el.name, el.value);
-      }
-      // process file fields
-      for(const name of FILE_FIELDS){
-        const input = form.querySelector(`input[name="${name}"]`);
-        if(!input || !input.files || !input.files[0]) continue;
-        const file = input.files[0];
-        const small = await compressFile(file);
-        formData.append(name, small, small.name || (name + ".jpg"));
-      }
-
-      // submit via fetch
-      const resp = await fetch(form.action, { method: 'POST', body: formData });
-      if(!resp.ok){
-        const text = await resp.text();
-        alert("Versturen mislukt (" + resp.status + "). Probeer kleinere foto's.
-" + (text || ""));
-      }else{
-        // try to download PDF
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'opdrachtbon.pdf'; document.body.appendChild(a); a.click();
-        setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000);
-        // reset form
-        form.reset();
-      }
-    }catch(e){
-      console.error("submit error", e);
-      alert("Versturen is mislukt door een fout. Probeer het opnieuw.");
-    }finally{
-      const form = document.getElementById(FORM_ID);
-      const submitBtn = form ? form.querySelector('button[type="submit"]') : null;
-      if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = "Verstuur opdrachtbon"; }
-    }
-  }
-
-  window.addEventListener('load', ()=>{
-    const form = document.getElementById(FORM_ID);
-    if(form){
-      form.addEventListener('submit', handleSubmit, { passive: false });
-    }
-  });
-})();
-</script>
-
 </body>
 </html>
     """
@@ -399,121 +225,16 @@ def submit():
     werkzaamheden = request.form.get("werkzaamheden",""); opmerkingen = request.form.get("opmerkingen","")
     klantemail = (request.form.get("klantemail","") or "").strip()
 
-
-    # Foto uploads (optioneel)
-    foto_fields = ["foto_kenteken", "foto_imei", "foto_chassis", "foto_extra1", "foto_extra2"]
-    fotos = []
-    for fname in foto_fields:
-        f = request.files.get(fname)
-        if f and getattr(f, "filename", ""):
-            data = f.read()
-            if data:
-                fotos.append((fname, data, f.filename))
-
-
-    # Beperk bestandsgrootte: downscale & compress (JPEG) — agressiever
-    processed = []
-    try:
-        from PIL import Image, ImageOps
-        target_side = int(os.getenv("IMG_MAX_SIDE", "900"))  # strakker: 1024px
-        base_quality = int(os.getenv("IMG_JPEG_QUALITY", "65"))
-        min_quality = int(os.getenv("IMG_JPEG_QUALITY_MIN", "45"))
-        target_kb = int(os.getenv("IMG_TARGET_PER_IMAGE_KB", "200"))
-        for key, img_bytes, orig_name in fotos:
-            try:
-                im = Image.open(BytesIO(img_bytes))
-                # Corrigeer oriëntatie en converteer naar RGB (strip EXIF)
-                try:
-                    im = ImageOps.exif_transpose(im)
-                except Exception:
-                    pass
-                if im.mode not in ("RGB",):
-                    im = im.convert("RGB")
-                # Downscale met thumbnail (behoud aspect)
-                im.thumbnail((target_side, target_side))
-                # Kwaliteit stap-gewijs omlaag tot doelgrootte
-                q = base_quality
-                out = BytesIO()
-                safe_save_jpeg(im, out, q)
-                while out.tell() > (target_kb * 1024) and q > min_quality:
-                    q = max(min_quality, q - 5)
-                    out.seek(0); out.truncate(0)
-                    safe_save_jpeg(im, out, q)
-                processed.append((key, out.getvalue(), orig_name))
-            except Exception:
-                processed.append((key, img_bytes, orig_name))
-        fotos = processed
-
-    except Exception:
-        pass
-
-    # Upload guards
-    safe_fotos = []
-    for key, data, name in fotos:
-        if not data or len(data) == 0: 
-            continue
-        safe_fotos.append((key, data, name))
-    fotos = safe_fotos[:5]  # max 5
-
-        # Totale payload limiter (bijv. 12 MB voor alle foto's samen)
-    try:
-        total_bytes = sum(len(b) for _, b, _ in fotos)
-        max_total = int(os.getenv("IMG_TOTAL_LIMIT_MB", "4")) * 1024 * 1024
-        if total_bytes > max_total:
-            # Trim of weiger extra foto's boven limiet
-            acc = 0
-            limited = []
-            for tup in fotos:
-                acc += len(tup[1])
-                if acc <= max_total:
-                    limited.append(tup)
-                else:
-                    break
-            fotos = limited
-    except Exception:
-        pass
-        now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
-        pdf_buf = BytesIO()
-        c = canvas.Canvas(pdf_buf, pagesize=A4)
-        w, h = A4
-        c.setFont("Helvetica-Bold", 13); c.drawString(2*cm, h-2*cm, f"Opdrachtbon · {now}")
-        c.setFont("Helvetica", 11); y = h-3.2*cm
-        for ln in [f"Klantnaam: {klantnaam}", f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}", f"IMEI: {imei}", f"VIN: {vin}", f"Werkzaamheden: {werkzaamheden}"]:
-            c.drawString(2*cm, y, ln); y -= 1.0*cm
-        c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
-        c.setFont("Helvetica", 10); t = c.beginText(2*cm, y)
-        for line in (opmerkingen or "-").splitlines(): t.textLine(line)
-        c.drawText(t)
-    
-    # Foto's toevoegen aan PDF
-    try:
-        if fotos:
-            # filter te grote restbestanden (>1.5MB) voor PDF-tekening
-            fotos = [t for t in fotos if len(t[1]) <= int(os.getenv("IMG_MAX_SINGLE_FOR_PDF_BYTES", str(1_500_000))) ]
-            y -= 0.8*cm
-            c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Foto's:"); y -= 0.6*cm
-            max_w = w - 4*cm
-            for key, img_bytes, orig_name in fotos:
-                try:
-                    ir = ImageReader(BytesIO(img_bytes))
-                    iw, ih = ir.getSize()
-                    scale = min(max_w/iw, 10*cm/ih) if iw and ih else 1.0
-                    tw, th = iw*scale, ih*scale
-                    # Pagina-breek indien nodig
-                    if y - th < 2*cm:
-                        c.showPage(); c.setFont("Helvetica", 10); y = h - 2.5*cm
-                    c.setFont("Helvetica", 9); c.setFillColor(colors.grey)
-                    label = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}.get(key, key)
-                    c.drawString(2*cm, y, f"{label}: {orig_name or ''}"); y -= 0.3*cm
-                    c.setFillColor(colors.black)
-                    c.drawImage(ir, 2*cm, y - th, width=tw, height=th, preserveAspectRatio=True, mask='auto')
-                    y -= th + 0.6*cm
-                except Exception as _e:
-                    # bij mislukken van 1 foto, ga door met de rest
-                    pass
-    except Exception:
-        pass
-    c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
+    now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
+    pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
+    c.setFont("Helvetica-Bold", 13); c.drawString(2*cm, h-2*cm, f"Opdrachtbon · {now}")
+    c.setFont("Helvetica", 11); y = h-3.2*cm
+    for ln in [f"Klantnaam: {klantnaam}", f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}", f"IMEI: {imei}", f"VIN: {vin}", f"Werkzaamheden: {werkzaamheden}"]:
+        c.drawString(2*cm, y, ln); y -= 1.0*cm
+    c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
+    c.setFont("Helvetica", 10); t = c.beginText(2*cm, y)
+    for line in (opmerkingen or "-").splitlines(): t.textLine(line)
+    c.drawText(t); c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
     c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier"); c.save()
 
     pdf_bytes = pdf_buf.getvalue(); filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -523,23 +244,11 @@ def submit():
     recipients = [*admin_list, *( [klantemail] if klantemail else [] )]
     seen=set(); recipients=[x for x in recipients if not (x in seen or seen.add(x))]
 
-    
-    # Beslis over mail-attachments t.o.v. limiet
-    email_max = int(os.getenv("EMAIL_MAX_MB", "5")) * 1024 * 1024
-    originals = [ (img_bytes, (orig_name or f"{key}.jpg"), "image/jpeg") for key, img_bytes, orig_name in fotos ]
-    attachments_to_send = [(pdf_bytes, filename, "application/pdf")]
-    total_with_originals = len(pdf_bytes) + sum(len(b) for b, _, _ in originals)
-    if total_with_originals <= email_max:
-        attachments_to_send += originals
-    else:
-        # te groot: alleen PDF meesturen
-        pass
-
     subject = os.getenv("MAIL_SUBJECT", "Opdrachtbon – {klantnaam} – {kenteken}").format(klantnaam=klantnaam or "", kenteken=kenteken or "")
     body = os.getenv("MAIL_BODY", "In de bijlage vind je de opdrachtbon (PDF).")
     if sender and recipients:
         try:
-            msg = build_message(subject, body, sender, ", ".join(recipients), attachments=attachments_to_send)
+            msg = build_message(subject, body, sender, ", ".join(recipients), attachments=[(pdf_bytes, filename, "application/pdf")])
             if klantemail: msg['Reply-To'] = klantemail
             send_email(msg)
         except Exception as e:
@@ -552,17 +261,6 @@ def submit():
 def healthz(): return "ok", 200
 @app.get("/robots.txt")
 def robots(): return "User-agent: *\nDisallow:", 200, {"Content-Type": "text/plain; charset=utf-8"}
-
-@app.errorhandler(500)
-def internal_error(e):
-    tb = traceback.format_exc()
-    print('[500]', e, tb)
-    if os.getenv('DIAG','0')=='1':
-        return (f"<h1>Interne serverfout</h1><pre>{tb}</pre>"), 500
-    return ("<h1>Interne serverfout</h1><p>Er ging iets mis bij het verwerken. "
-            "Ga <a href='/'>&larr; terug</a> en probeer opnieuw. "
-            "Als dit blijft gebeuren, probeer minder/lager-resolutie foto's of neem contact op.</p>"), 500
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
