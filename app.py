@@ -7,6 +7,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 
 app = Flask(__name__)
 
@@ -69,7 +70,7 @@ textarea{ min-height:90px; resize:vertical }
     <h1>Opdrachtbon</h1>
     <div class="sub">Datum &amp; tijd: <strong>{{now}}</strong></div>
 
-    <form action="/submit" method="post" id="bonform">
+    <form action="/submit" method="post" id="bonform" enctype="multipart/form-data">
       <div class="row row-2">
         <div><label>Klantnaam</label><input name="klantnaam" required placeholder="Bedrijf of persoon"></div>
         <div class="rdw">
@@ -114,7 +115,41 @@ textarea{ min-height:90px; resize:vertical }
         <div><label>Eigen e‑mail (afzender)</label><input type="email" name="senderemail" value="icnorthautomotive@gmail.com" readonly></div>
       </div>
 
-      <button class="btn" type="submit">PDF maken &amp; mailen</button>
+      
+      <div class="row row-2" style="margin-top:16px">
+        <div>
+          <label>Kenteken foto</label>
+          <input type="file" name="foto_kenteken" accept="image/*" capture="environment">
+          <div class="hint">Maak of kies een duidelijke foto van het kenteken.</div>
+        </div>
+        <div>
+          <label>IMEI foto</label>
+          <input type="file" name="foto_imei" accept="image/*" capture="environment">
+          <div class="hint">Foto van het IMEI‑nummer (bijv. sticker/label).</div>
+        </div>
+      </div>
+
+      <div class="row row-2">
+        <div>
+          <label>Chassisnummer foto</label>
+          <input type="file" name="foto_chassis" accept="image/*" capture="environment">
+          <div class="hint">Foto van het VIN/chassisnummer.</div>
+        </div>
+        <div>
+          <label>Extra foto 1 (optioneel)</label>
+          <input type="file" name="foto_extra1" accept="image/*" capture="environment">
+          <div class="hint">Optioneel extra beeld (detail of context).</div>
+        </div>
+      </div>
+
+      <div class="row row-2">
+        <div>
+          <label>Extra foto 2 (optioneel)</label>
+          <input type="file" name="foto_extra2" accept="image/*" capture="environment">
+          <div class="hint">Optioneel extra beeld.</div>
+        </div>
+      </div>
+    <button class="btn" type="submit">PDF maken &amp; mailen</button>
     </form>
 
     <div class="footer-info">Scan werkt op iPhone (Safari) via camera • RDW via open data</div>
@@ -225,7 +260,17 @@ def submit():
     werkzaamheden = request.form.get("werkzaamheden",""); opmerkingen = request.form.get("opmerkingen","")
     klantemail = (request.form.get("klantemail","") or "").strip()
 
-    now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
+
+    # Foto uploads (optioneel)
+    foto_fields = ["foto_kenteken", "foto_imei", "foto_chassis", "foto_extra1", "foto_extra2"]
+    fotos = []
+    for fname in foto_fields:
+        f = request.files.get(fname)
+        if f and getattr(f, "filename", ""):
+            data = f.read()
+            if data:
+                fotos.append((fname, data, f.filename))
+        now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
     pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
     c.setFont("Helvetica-Bold", 13); c.drawString(2*cm, h-2*cm, f"Opdrachtbon · {now}")
     c.setFont("Helvetica", 11); y = h-3.2*cm
@@ -234,7 +279,35 @@ def submit():
     c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
     c.setFont("Helvetica", 10); t = c.beginText(2*cm, y)
     for line in (opmerkingen or "-").splitlines(): t.textLine(line)
-    c.drawText(t); c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
+    c.drawText(t)
+
+    # Foto's toevoegen aan PDF
+    try:
+        if fotos:
+            y -= 0.8*cm
+            c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Foto's:"); y -= 0.6*cm
+            max_w = w - 4*cm
+            for key, img_bytes, orig_name in fotos:
+                try:
+                    ir = ImageReader(BytesIO(img_bytes))
+                    iw, ih = ir.getSize()
+                    scale = min(max_w/iw, 10*cm/ih) if iw and ih else 1.0
+                    tw, th = iw*scale, ih*scale
+                    # Pagina-breek indien nodig
+                    if y - th < 2*cm:
+                        c.showPage(); c.setFont("Helvetica", 10); y = h - 2.5*cm
+                    c.setFont("Helvetica", 9); c.setFillColor(colors.grey)
+                    label = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}.get(key, key)
+                    c.drawString(2*cm, y, f"{label}: {orig_name or ''}"); y -= 0.3*cm
+                    c.setFillColor(colors.black)
+                    c.drawImage(ir, 2*cm, y - th, width=tw, height=th, preserveAspectRatio=True, mask='auto')
+                    y -= th + 0.6*cm
+                except Exception as _e:
+                    # bij mislukken van 1 foto, ga door met de rest
+                    pass
+    except Exception:
+        pass
+     c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
     c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier"); c.save()
 
     pdf_bytes = pdf_buf.getvalue(); filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -248,7 +321,7 @@ def submit():
     body = os.getenv("MAIL_BODY", "In de bijlage vind je de opdrachtbon (PDF).")
     if sender and recipients:
         try:
-            msg = build_message(subject, body, sender, ", ".join(recipients), attachments=[(pdf_bytes, filename, "application/pdf")])
+            msg = build_message(subject, body, sender, ", ".join(recipients), attachments=[(pdf_bytes, filename, "application/pdf")] + [ (img_bytes, (orig_name or f"{key}.jpg"), "image/jpeg") for key, img_bytes, orig_name in fotos ])
             if klantemail: msg['Reply-To'] = klantemail
             send_email(msg)
         except Exception as e:
