@@ -293,7 +293,9 @@ def submit():
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
     pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
     # Header met logo + titel
-        logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.jpg")
+            # ===== V9 LAYOUT (logo & titel top-uitgelijnd) =====
+    TITLE_COLOR = colors.HexColor("#4a4a4a")
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.jpg")
     try:
         if os.path.exists(logo_path):
             im = Image.open(logo_path)
@@ -317,8 +319,10 @@ def submit():
             c.drawImage(ir_logo, 2*cm, y_logo, width=logo_w, height=logo_h, preserveAspectRatio=True, mask='auto')
     except Exception:
         pass
-    c.setFont("Helvetica-Bold", 16); c.drawRightString(w-2*cm, (h - 0.8*cm) - 0.80*16, "Opdrachtbon")
-    c.setFont("Helvetica", 10); c.drawRightString(w-2*cm, (h - 0.8*cm) - 0.80*16 - 0.9*cm, now)
+    c.setFillColor(TITLE_COLOR); c.setFont("Helvetica-Bold", 16)
+    title_y = (h - 0.8*cm) - ascent_pts
+    c.drawRightString(w-2*cm, title_y, "Opdrachtbon")
+    c.setFont("Helvetica", 10); c.drawRightString(w-2*cm, title_y - 0.9*cm, now)
 
     c.setFont("Helvetica", 11); y = h-3.2*cm
     for ln in [f"Klantnaam: {klantnaam}", f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}", f"IMEI: {imei}", f"VIN: {vin}", f"Werkzaamheden: {werkzaamheden}"]:
