@@ -364,7 +364,7 @@ def submit():
     c.drawText(t)
     y -= (op_h + 0.5*cm)
     
-    photos_h = 8.2*cm
+    photos_h = 10.0*cm
     card(margin_x, y - photos_h, col_w, photos_h, "Foto's")
     inner_x = margin_x + 0.6*cm
     inner_y_top = y - 1.4*cm
@@ -376,7 +376,7 @@ def submit():
     label_map = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}
     prepared = []
     for key, img_bytes, orig in fotos[:5]:
-        small = _shrink_for_pdf(img_bytes, max_side=950, target_kb=220)
+        small = _shrink_for_pdf(img_bytes, max_side=1200, target_kb=220)
         prepared.append((key, small, orig))
     
     from io import BytesIO as _B
@@ -386,7 +386,7 @@ def submit():
         cx = inner_x + cc*cell_w; cy = inner_y_top - r*cell_h
         c.setStrokeColor(colors.HexColor("#cfd9e6"))
         c.roundRect(cx+0.2*cm, cy - cell_h + 0.2*cm, cell_w-0.4*cm, cell_h-0.4*cm, 6, fill=0, stroke=1)
-        pad_x = 0.45*cm; pad_y = 0.75*cm
+        pad_x = 0.45*cm; pad_y = 0.50*cm
         max_w = cell_w - 2*pad_x; max_h = cell_h - pad_y - 0.9*cm
         try:
             ir = ImageReader(_B(small))
