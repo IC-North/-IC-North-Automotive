@@ -291,113 +291,119 @@ def submit():
                 fotos.append((fname, data, f.filename))
 
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
-    pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
-    # Header met logo + titel
-    logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.jpg")
-    try:
-        if os.path.exists(logo_path):
-            ir_logo = ImageReader(logo_path)
-            # schaal logo tot max 3.5cm breed en 1.6cm hoog
-            lw, lh = ir_logo.getSize()
-            max_w_cm, max_h_cm = 3.5*cm, 1.6*cm
-            scale = min(max_w_cm/lw, max_h_cm/lh) if lw and lh else 1.0
-            c.drawImage(ir_logo, 2*cm, h-2*cm-1.6*cm, width=lw*scale, height=lh*scale, preserveAspectRatio=True, mask='auto')
-    except Exception:
-        pass
-    c.setFont("Helvetica-Bold", 14); c.drawRightString(w-2*cm, h-2*cm, "Opdrachtbon")
-    c.setFont("Helvetica", 10); c.drawRightString(w-2*cm, h-2*cm-0.5*cm, now)
-
-    c.setFont("Helvetica", 11); y = h-3.2*cm
-    for ln in [f"Klantnaam: {klantnaam}", f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}", f"IMEI: {imei}", f"VIN: {vin}", f"Werkzaamheden: {werkzaamheden}"]:
-        c.drawString(2*cm, y, ln); y -= 1.0*cm
-    c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
-    c.setFont("Helvetica", 10); t = c.beginText(2*cm, y)
-    for line in (opmerkingen or "-").splitlines(): t.textLine(line)
-    c.drawText(t)
-    # Foto's in de PDF plaatsen (grid op één pagina)
-    try:
-        if fotos:
-            # verklein bytes per foto voor PDF en label mapping
-            label_map = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}
-            prepared = []
-            for key, img_bytes, orig in fotos[:5]:
-                small = _shrink_for_pdf(img_bytes, max_side=950, target_kb=220)
-                prepared.append((key, small, orig))
-            # beschikbare ruimte berekenen: onder de tekst
-            # y is huidige baseline onder "Opmerkingen"; we reserveren ruimte vanaf y-0.4cm
-            y -= 0.4*cm
-            top = y
-            bottom = 2.2*cm  # boven de footer
-            available_h = max(4*cm, top - bottom)
-            left = 2*cm; right = w - 2*cm; available_w = right - left
-            # grid: 2 kolommen, 3 rijen max (we hebben max 5 foto's)
-            cols = 2
-            rows = (len(prepared)+cols-1)//cols
-            rows = min(rows, 3)
-            cell_w = available_w / cols
-            # labelruimte onder elke foto
-            label_h = 0.35*cm
-            # hoogte per rij zo dat alles past
-            cell_h = available_h / max(rows,1)
-            # cap een maximum fotogrootte binnen cell
-            for idx, (key, small, orig) in enumerate(prepared):
-                row = idx // cols
-                col = idx % cols
-                cx = left + col*cell_w
-                cy_top = top - row*cell_h
-                try:
-                    ir = ImageReader(BytesIO(small))
-                    iw, ih = ir.getSize()
-                    # bereken schaal zodat in cell past met label
-                    max_w = cell_w - 0.4*cm
-                    max_h = cell_h - label_h - 0.25*cm
-                    scale = min(max_w/iw, max_h/ih) if iw and ih else 1.0
-                    tw, th = iw*scale, ih*scale
-                    # centreer binnen cel
-                    img_x = cx + (cell_w - tw)/2
-                    img_y = cy_top - th - 0.15*cm
-                    # teken
-                    c.drawImage(ir, img_x, img_y, width=tw, height=th, preserveAspectRatio=True, mask='auto')
-                    # label
-                    c.setFont("Helvetica", 9); c.setFillColor(colors.grey)
-                    label = f"{label_map.get(key,key)}"
-                    if orig: label += f" · {orig}"
-                    c.drawCentredString(cx + cell_w/2, img_y - 0.1*cm, label[:60])
-                    c.setFillColor(colors.black)
-                except Exception:
-                    pass
-            # zet y zodat footer niet overlapt
-            y = bottom + 0.2*cm
-    except Exception:
-        pass
-    c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
-    c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier"); c.save()
     
-    pdf_bytes = pdf_buf.getvalue(); filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-
-    sender = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USER")
-    admin_list = split_emails(os.getenv("RECEIVER_EMAIL"))
-    recipients = [*admin_list, *( [klantemail] if klantemail else [] )]
-    seen=set(); recipients=[x for x in recipients if not (x in seen or seen.add(x))]
-
-    subject = os.getenv("MAIL_SUBJECT", "Opdrachtbon – {klantnaam} – {kenteken}").format(klantnaam=klantnaam or "", kenteken=kenteken or "")
-    body = os.getenv("MAIL_BODY", "In de bijlage vind je de opdrachtbon (PDF).")
-    if sender and recipients:
+    pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
+    TITLE_COLOR = colors.HexColor("#4a4a4a")
+    # Logo
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.jpg")
+    if os.path.exists(logo_path):
         try:
-            msg = build_message(subject, body, sender, ", ".join(recipients), attachments=[(pdf_bytes, filename, "application/pdf")])
-            if klantemail: msg['Reply-To'] = klantemail
-            send_email(msg)
-        except Exception as e:
-            print("[mail] error:", e)
+            im = Image.open(logo_path).convert("RGB")
+            bbox = im.getbbox()
+            if bbox: im = im.crop(bbox)
+            ir_logo = ImageReader(im)
+            lw, lh = im.size
+            logo_target_h = 3.8*cm
+            scale = logo_target_h / lh
+            logo_w = lw*scale; logo_h = lh*scale
+            y_logo = h - logo_h - 0.8*cm
+            c.drawImage(ir_logo, 2*cm, y_logo, width=logo_w, height=logo_h, preserveAspectRatio=True, mask='auto')
+        except Exception:
+            pass
+    # Titel rechts + datum
+    c.setFillColor(TITLE_COLOR); c.setFont("Helvetica-Bold", 16)
+    title_y = h - 3.2*cm
+    c.drawRightString(w-2*cm, title_y, "Opdrachtbon")
+    c.setFont("Helvetica", 10); c.drawRightString(w-2*cm, title_y - 0.9*cm, now)
 
-    pdf_buf.seek(0)
-    return send_file(pdf_buf, as_attachment=True, download_name=filename, mimetype="application/pdf")
+    def card(x, y, width, height, title):
+        c.setFillColor(colors.white)
+        c.setStrokeColor(colors.HexColor("#d8e2ef"))
+        c.setLineWidth(0.6)
+        c.roundRect(x, y, width, height, 8, fill=1, stroke=1)
+        c.setFillColor(TITLE_COLOR); c.setFont("Helvetica-Bold", 12)
+        c.drawString(x+0.6*cm, y+height-0.55*cm, title)
 
-@app.get("/healthz")
-def healthz(): return "ok", 200
-@app.get("/robots.txt")
-def robots(): return "User-agent: *\nDisallow:", 200, {"Content-Type": "text/plain; charset=utf-8"}
+    margin_x = 2*cm
+    content_top = h - 6.8*cm
+    col_w = w - 2*margin_x
+    y = content_top
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    # Gegevens
+    data_h = 4.8*cm
+    card(margin_x, y - data_h, col_w, data_h, "Klant & Voertuig")
+    left_x = margin_x + 0.8*cm
+    right_x = margin_x + col_w/2 + 0.2*cm
+    line_y = y - 1.4*cm
+
+    def draw_pair(x, y0, label, value):
+        c.setFont("Helvetica-Bold", 10); c.setFillColor(TITLE_COLOR)
+        c.drawString(x, y0, f"{label}:")
+        c.setFont("Helvetica", 10); c.setFillColor(colors.black)
+        c.drawString(x+3.2*cm, y0, value or "-")
+
+    draw_pair(left_x,  line_y + 0.0*cm, "Klantnaam", klantnaam)
+    draw_pair(left_x,  line_y - 0.85*cm, "Kenteken", kenteken)
+    draw_pair(left_x,  line_y - 1.70*cm, "Merk/Type", (merk or "") + ((" " + type_) if type_ else ""))
+    draw_pair(right_x, line_y + 0.0*cm, "Bouwjaar", bouwjaar)
+    draw_pair(right_x, line_y - 0.85*cm, "IMEI", imei)
+    draw_pair(right_x, line_y - 1.70*cm, "VIN", vin)
+
+    y -= (data_h + 0.5*cm)
+
+    # Opmerkingen
+    op_h = 3.6*cm
+    card(margin_x, y - op_h, col_w, op_h, "Opmerkingen")
+    c.setFont("Helvetica", 10); c.setFillColor(colors.black)
+    t = c.beginText(margin_x+0.8*cm, y - 1.2*cm); t.setLeading(14)
+    for line in (opmerkingen or "").splitlines()[:22]:
+        t.textLine(line[:120])
+    c.drawText(t)
+    y -= (op_h + 0.5*cm)
+
+    # Foto's
+    photos_h = 8.2*cm
+    card(margin_x, y - photos_h, col_w, photos_h, "Foto's")
+    inner_x = margin_x + 0.6*cm
+    inner_y_top = y - 1.4*cm
+    inner_w = col_w - 1.2*cm
+    inner_h = photos_h - 2.1*cm
+    cols = 2; rows = 3
+    cell_w = inner_w / cols; cell_h = inner_h / rows
+
+    label_map = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}
+    prepared = []
+    for key, img_bytes, orig in fotos[:5]:
+        small = _shrink_for_pdf(img_bytes, max_side=950, target_kb=220)
+        prepared.append((key, small, orig))
+
+    from io import BytesIO as _B
+    for i, tup in enumerate(prepared):
+        key, small, orig = tup
+        r = i // cols; cc = i % cols
+        cx = inner_x + cc*cell_w; cy = inner_y_top - r*cell_h
+        c.setStrokeColor(colors.HexColor("#cfd9e6"))
+        c.roundRect(cx+0.2*cm, cy - cell_h + 0.2*cm, cell_w-0.4*cm, cell_h-0.4*cm, 6, fill=0, stroke=1)
+        pad_x = 0.45*cm; pad_y = 0.75*cm
+        max_w = cell_w - 2*pad_x; max_h = cell_h - pad_y - 0.9*cm
+        try:
+            ir = ImageReader(_B(small))
+            iw, ih = ir.getSize(); sc = min(max_w/iw, max_h/ih) if iw and ih else 1.0
+            tw, th = iw*sc, ih*sc
+            img_x = cx + (cell_w - tw)/2; img_y = cy - pad_y - th
+            c.setStrokeColor(colors.HexColor("#dde6f2"))
+            c.rect(cx+pad_x, cy - pad_y - max_h, max_w, max_h, stroke=1, fill=0)
+            c.drawImage(ir, img_x, img_y, width=tw, height=th, preserveAspectRatio=True, mask='auto')
+        except Exception:
+            pass
+        c.setFont("Helvetica", 9); c.setFillColor(TITLE_COLOR)
+        label = label_map.get(key, key)
+        if orig: label += f" · {orig}"
+        c.drawCentredString(cx + cell_w/2, cy - cell_h + 0.45*cm, label[:70])
+
+    # Footer
+    c.setStrokeColor(colors.HexColor("#d9e3f1")); c.setLineWidth(0.8)
+    c.line(margin_x, 2.15*cm, w - margin_x, 2.15*cm)
+    c.setFont("Helvetica-Oblique", 9); c.setFillColor(colors.HexColor("#6b7c93"))
+    c.drawCentredString(w/2, 1.55*cm, "IC-North Automotive · gegenereerd via webformulier")
+    c.save()
