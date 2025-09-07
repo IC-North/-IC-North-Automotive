@@ -370,12 +370,12 @@ def submit():
     inner_y_top = y - 1.4*cm
     inner_w = col_w - 1.2*cm
     inner_h = photos_h - 2.1*cm
-    cols = 2; rows = 3
+    cols = 2; rows = 2
     cell_w = inner_w / cols; cell_h = inner_h / rows
     
-    label_map = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}
+    label_map = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra"}
     prepared = []
-    for key, img_bytes, orig in fotos[:5]:
+    for key, img_bytes, orig in fotos[:4]:
         small = _shrink_for_pdf(img_bytes, max_side=1200, target_kb=220)
         prepared.append((key, small, orig))
     
