@@ -104,7 +104,7 @@ textarea{ min-height:90px; resize:vertical }
         <div class="rdw">
           <div style="flex:1">
             <label>Kenteken</label>
-            <input id="kenteken" style="width:200px;" oninput="formatKenteken()" name="kenteken" required placeholder="Bijv. AB-123-C" autocomplete="off">
+            <input id="kenteken" style="width:200px;" oninput="formatKenteken()" name="kenteken" required placeholder="Bijv. VGK-91-X" autocomplete="off">
             <div class="hint">Wordt automatisch geformatteerd en opgehaald.</div>
           </div>
           <button type="button" class="btn secondary" onclick="haalRdw()">Haal RDW</button>
@@ -240,31 +240,8 @@ kentekenEl.addEventListener('change', () => {
   fetch('/format_kenteken', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({raw})})
     .then(r=>r.json()).then(d=>{ kentekenEl.value = d.formatted; });
 });
-function haalRdw(){ const k=kentekenEl.value.trim(); if(!k){ alert('Vul eerst een kenteken in.'); return; } fetch('/rdw?kenteken='+encodeURIComponent(k)).then(r=>r.json()).then(d=>{ if(d&&d.success){ if(d.kenteken){ document.getElementById('kenteken').value=d.kenteken; } document.getElementById('merk').value=d.merk||''; document.getElementById('type').value=d.type||''; document.getElementById('bouwjaar').value=d.bouwjaar||''; } else { alert(d.message || 'Geen gegevens gevonden.'); } }).catch(()=>alert('Fout bij RDW ophalen.')); }
-function formatKenteken(){
-  let input=document.getElementById("kenteken");
-  let s=input.value.toUpperCase().replace(/[^A-Z0-9]/g,"");
-  // Detecteer NL-patroon o.b.v. letters/cijfers in plaats van lengte.
-  const pats=[
-    [/^([A-Z]{2})(\d{2})(\d{2})$/, "$1-$2-$3"],
-    [/^(\d{2})(\d{2})([A-Z]{2})$/, "$1-$2-$3"],
-    [/^(\d{2})([A-Z]{2})(\d{2})$/, "$1-$2-$3"],
-    [/^([A-Z]{2})(\d{2})([A-Z]{2})$/, "$1-$2-$3"],
-    [/^([A-Z]{2})([A-Z]{2})(\d{2})$/, "$1-$2-$3"],
-    [/^(\d{2})([A-Z]{2})([A-Z]{2})$/, "$1-$2-$3"],
-    [/^([A-Z]{2})(\d{3})([A-Z])$/, "$1-$2-$3"],
-    [/^([A-Z])(\d{3})([A-Z]{2})$/, "$1-$2-$3"],
-    [/^([A-Z]{2})(\d{2})([A-Z]{3})$/, "$1-$2-$3"],
-    [/^([A-Z]{3})(\d{2})([A-Z]{2})$/, "$1-$2-$3"],
-    [/^(\d{2})([A-Z]{3})(\d{2})$/, "$1-$2-$3"],
-    [/^(\d{3})([A-Z]{2})(\d{1})$/, "$1-$2-$3"],
-    [/^(\d{1})([A-Z]{2})(\d{3})$/, "$1-$2-$3"],
-  ];
-  for(const [re, fmt] of pats){
-    const m=s.match(re); if(m){ input.value=s.replace(re, fmt); return; }
-  }
-  input.value=s; // geen streepjes als patroon onbekend
-}
+function haalRdw(){ const k=kentekenEl.value.trim(); if(!k){ alert('Vul eerst een kenteken in.'); return; } fetch('/rdw?kenteken='+encodeURIComponent(k)).then(r=>r.json()).then(d=>{ if(d&&d.success){ document.getElementById('merk').value=d.merk||''; document.getElementById('type').value=d.type||''; document.getElementById('bouwjaar').value=d.bouwjaar||''; } else { alert(d.message || 'Geen gegevens gevonden.'); } }).catch(()=>alert('Fout bij RDW ophalen.')); }
+function formatKenteken(){ let input=document.getElementById("kenteken"); let val=input.value.toUpperCase().replace(/[^A-Z0-9]/g,""); if(val.length===6){ val=val.replace(/(.{2})(.{2})(.{2})/,"$1-$2-$3"); } else if(val.length===7){ val=val.replace(/(.{2})(.{3})(.{2})/,"$1-$2-$3"); } else if(val.length===8){ val=val.replace(/(.{2})(.{2})(.{3})(.{1})/,"$1-$2-$3-$4"); } input.value=val; }
 </script>
 </body>
 </html>
@@ -274,8 +251,7 @@ function formatKenteken(){
 @app.post("/format_kenteken")
 def api_format_kenteken():
     data = request.get_json(force=True, silent=True) or {}
-    raw = data.get("raw","")
-    return jsonify({"formatted": format_officieel_rdws(raw) or format_kenteken(raw)})
+    return jsonify({"formatted": format_kenteken(data.get("raw",""))})
 
 @app.get("/rdw")
 def rdw():
@@ -290,11 +266,9 @@ def rdw():
         if not data:
             return jsonify({"success": False, "message": "Kenteken niet gevonden bij RDW."})
         row = data[0]
-        rdw_k = row.get("kenteken","")
-        kenteken_off = format_officieel_rdws(rdw_k)
         merk = row.get("merk",""); handels = row.get("handelsbenaming",""); det = row.get("datum_eerste_toelating","")
         bouwjaar = det[:4] if det and len(det)>=4 else ""
-        return jsonify({"success": True, "kenteken": kenteken_off, "merk": merk, "type": handels, "bouwjaar": bouwjaar})
+        return jsonify({"success": True, "merk": merk, "type": handels, "bouwjaar": bouwjaar})
     except Exception as e:
         return jsonify({"success": False, "message": f"RDW fout: {e}"})
 
@@ -463,26 +437,3 @@ def robots(): return "User-agent: *\nDisallow:", 200, {"Content-Type": "text/pla
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-
-
-def format_officieel_rdws(k: str) -> str:
-    s = re.sub(r"[^A-Z0-9]", "", (k or "").upper())
-    patterns = [
-        (r"^([A-Z]{2})(\d{2})(\d{2})$", r"\\1-\\2-\\3"),
-        (r"^(\d{2})(\d{2})([A-Z]{2})$", r"\\1-\\2-\\3"),
-        (r"^(\d{2})([A-Z]{2})(\d{2})$", r"\\1-\\2-\\3"),
-        (r"^([A-Z]{2})(\d{2})([A-Z]{2})$", r"\\1-\\2-\\3"),
-        (r"^([A-Z]{2})([A-Z]{2})(\d{2})$", r"\\1-\\2-\\3"),
-        (r"^(\d{2})([A-Z]{2})([A-Z]{2})$", r"\\1-\\2-\\3"),
-        (r"^([A-Z]{2})(\d{3})([A-Z])$", r"\\1-\\2-\\3"),
-        (r"^([A-Z])(\d{3})([A-Z]{2})$", r"\\1-\\2-\\3"),
-        (r"^([A-Z]{2})(\d{2})([A-Z]{3})$", r"\\1-\\2-\\3"),
-        (r"^([A-Z]{3})(\d{2})([A-Z]{2})$", r"\\1-\\2-\\3"),
-        (r"^(\d{2})([A-Z]{3})(\d{2})$", r"\\1-\\2-\\3"),
-        (r"^(\d{3})([A-Z]{2})(\d{1})$", r"\\1-\\2-\\3"),
-        (r"^(\d{1})([A-Z]{2})(\d{3})$", r"\\1-\\2-\\3"),
-    ]
-    for pat, repl in patterns:
-        if re.match(pat, s):
-            return re.sub(pat, repl, s)
-    return s

@@ -9,7 +9,5 @@ Deploy: upload app.py, mailer.py, Procfile, runtime.txt → Render manual deploy
 
 ---
 
-## Fix2
-- Live formattering gebruikt nu patronen op basis van letters/cijfers (niet alleen lengte).
-- RDW-respons bevat `kenteken` met streepjes; UI zet dit direct.
-- `/format_kenteken` geeft nu dezelfde officiële formatter terug.
+## Fix3
+- Patroonondersteuning aangevuld met **AAA-99-A** en **A-99-AAA** (o.a. voor kenteken zoals VGK33T → `VGK-33-T`).
