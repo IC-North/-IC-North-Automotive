@@ -45,6 +45,31 @@ def format_kenteken(raw: str) -> str:
     parts = re.findall(r"[A-Z]+|\d+", s)
     return "-".join(parts)
 
+
+def format_officieel_rdws(k: str) -> str:
+    # Geef NL kenteken terug in officiële schrijfwijze (met streepjes)
+    s = re.sub(r"[^A-Z0-9]", "", (k or "").upper())
+    patterns = [
+        (r"^([A-Z]{2})(\d{2})(\d{2})$", r"\\1-\\2-\\3"),
+        (r"^(\d{2})(\d{2})([A-Z]{2})$", r"\\1-\\2-\\3"),
+        (r"^(\d{2})([A-Z]{2})(\d{2})$", r"\\1-\\2-\\3"),
+        (r"^([A-Z]{2})(\d{2})([A-Z]{2})$", r"\\1-\\2-\\3"),
+        (r"^([A-Z]{2})([A-Z]{2})(\d{2})$", r"\\1-\\2-\\3"),
+        (r"^(\d{2})([A-Z]{2})([A-Z]{2})$", r"\\1-\\2-\\3"),
+        (r"^([A-Z]{2})(\d{3})([A-Z])$", r"\\1-\\2-\\3"),
+        (r"^([A-Z])(\d{3})([A-Z]{2})$", r"\\1-\\2-\\3"),
+        (r"^([A-Z]{2})(\d{2})([A-Z]{3})$", r"\\1-\\2-\\3"),
+        (r"^([A-Z]{3})(\d{2})([A-Z]{2})$", r"\\1-\\2-\\3"),
+        (r"^(\d{2})([A-Z]{3})(\d{2})$", r"\\1-\\2-\\3"),
+        (r"^(\d{3})([A-Z]{2})(\d{1})$", r"\\1-\\2-\\3"),
+        (r"^(\d{1})([A-Z]{2})(\d{3})$", r"\\1-\\2-\\3"),
+    ]
+    for pat, repl in patterns:
+        m = re.match(pat, s)
+        if m:
+            return re.sub(pat, repl, s)
+    return s
+
 def split_emails(raw: str):
     if not raw: return []
     return [e.strip() for e in re.split(r"[;,]", raw) if e.strip()]
@@ -104,7 +129,7 @@ textarea{ min-height:90px; resize:vertical }
         <div class="rdw">
           <div style="flex:1">
             <label>Kenteken</label>
-            <input id="kenteken" style="width:200px;" oninput="formatKenteken()" name="kenteken" required placeholder="Bijv. VGK-91-X" autocomplete="off">
+            <input id="kenteken" style="width:200px;" oninput="formatKenteken()" name="kenteken" required placeholder="Bijv. AB-123-C" autocomplete="off">
             <div class="hint">Wordt automatisch geformatteerd en opgehaald.</div>
           </div>
           <button type="button" class="btn secondary" onclick="haalRdw()">Haal RDW</button>
@@ -240,7 +265,7 @@ kentekenEl.addEventListener('change', () => {
   fetch('/format_kenteken', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({raw})})
     .then(r=>r.json()).then(d=>{ kentekenEl.value = d.formatted; });
 });
-function haalRdw(){ const k=kentekenEl.value.trim(); if(!k){ alert('Vul eerst een kenteken in.'); return; } fetch('/rdw?kenteken='+encodeURIComponent(k)).then(r=>r.json()).then(d=>{ if(d&&d.success){ document.getElementById('merk').value=d.merk||''; document.getElementById('type').value=d.type||''; document.getElementById('bouwjaar').value=d.bouwjaar||''; } else { alert(d.message || 'Geen gegevens gevonden.'); } }).catch(()=>alert('Fout bij RDW ophalen.')); }
+function haalRdw(){ const k=kentekenEl.value.trim(); if(!k){ alert('Vul eerst een kenteken in.'); return; } fetch('/rdw?kenteken='+encodeURIComponent(k)).then(r=>r.json()).then(d=>{ if(d&&d.success){ document.getElementById('kenteken').value=d.kenteken||''; document.getElementById('merk').value=d.merk||''; document.getElementById('type').value=d.type||''; document.getElementById('bouwjaar').value=d.bouwjaar||''; } else { alert(d.message || 'Geen gegevens gevonden.'); } }).catch(()=>alert('Fout bij RDW ophalen.')); }
 function formatKenteken(){ let input=document.getElementById("kenteken"); let val=input.value.toUpperCase().replace(/[^A-Z0-9]/g,""); if(val.length===6){ val=val.replace(/(.{2})(.{2})(.{2})/,"$1-$2-$3"); } else if(val.length===7){ val=val.replace(/(.{2})(.{3})(.{2})/,"$1-$2-$3"); } else if(val.length===8){ val=val.replace(/(.{2})(.{2})(.{3})(.{1})/,"$1-$2-$3-$4"); } input.value=val; }
 </script>
 </body>
@@ -265,17 +290,19 @@ def rdw():
         data = resp.json() if resp.ok else []
         if not data:
             return jsonify({"success": False, "message": "Kenteken niet gevonden bij RDW."})
-        row = data[0]
+        row = sorted(data, key=lambda r: r.get("datum_eerste_toelating", ""), reverse=True)[0]
+        rdw_k = row.get("kenteken","")
+        formatted_k = format_officieel_rdws(rdw_k)
         merk = row.get("merk",""); handels = row.get("handelsbenaming",""); det = row.get("datum_eerste_toelating","")
         bouwjaar = det[:4] if det and len(det)>=4 else ""
-        return jsonify({"success": True, "merk": merk, "type": handels, "bouwjaar": bouwjaar})
+        return jsonify({"success": True, "kenteken": formatted_k, "merk": merk, "type": handels, "bouwjaar": bouwjaar})
     except Exception as e:
         return jsonify({"success": False, "message": f"RDW fout: {e}"})
 
 @app.post("/submit")
 def submit():
     klantnaam = request.form.get("klantnaam","")
-    kenteken = format_kenteken(request.form.get("kenteken",""))
+    kenteken = format_officieel_rdws(request.form.get("kenteken","")) or format_kenteken(request.form.get("kenteken",""))
     merk = request.form.get("merk",""); type_ = request.form.get("type",""); bouwjaar = request.form.get("bouwjaar","")
     imei = request.form.get("imei",""); vin = request.form.get("vin","")
     werkzaamheden = request.form.get("werkzaamheden",""); opmerkingen = request.form.get("opmerkingen","")
