@@ -9,8 +9,7 @@ Deploy: upload app.py, mailer.py, Procfile, runtime.txt → Render manual deploy
 
 ---
 
-## 2025-09 Update
-- Kenteken placeholder vervangen door `Bijv. AB-123-C`.
-- RDW endpoint retourneert nu het kenteken in **officiële schrijfwijze** en de UI zet dit direct in het veld.
-- Bij meerdere RDW-resultaten kiezen we de nieuwste `datum_eerste_toelating`.
-- Server-side gebruikt `format_officieel_rdws()` bij submit als laatste stap.
+## Fix2
+- Live formattering gebruikt nu patronen op basis van letters/cijfers (niet alleen lengte).
+- RDW-respons bevat `kenteken` met streepjes; UI zet dit direct.
+- `/format_kenteken` geeft nu dezelfde officiële formatter terug.
