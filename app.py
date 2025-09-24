@@ -90,8 +90,8 @@ textarea{ min-height:90px; resize:vertical }
 #scanError{ color:#fecaca; font-size:12px; margin-top:6px; }
 .footer-info{ color:#9ca3af; font-size:12px; text-align:center; margin-top:8px }
 </style>
-<script src="/static/html5-qrcode.min.js" defer></script>
-<script src="/static/tesseract.min.js" defer></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.9/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -122,7 +122,7 @@ textarea{ min-height:90px; resize:vertical }
         <div>
           <label>IMEI nummer</label>
           <input id="imei" name="imei" placeholder="Scan of typ het nummer">
-          <div class="actions"><button type="button" class="btn icon" onclick="openBarcodeScanner('imei')">Scan IMEI</button></div>
+          <div class="actions"><button type="button" class="btn icon" onclick="openScanner('imei')">Scan IMEI</button></div>
           <div class="hint">Ondersteunt QR, Code128, Code39, EAN-13/8. Voegt checkdigit toe bij 14 cijfers.</div>
         </div>
         <div>
