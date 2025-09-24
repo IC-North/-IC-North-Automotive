@@ -62,6 +62,7 @@ def index():
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/html5-qrcode@2.3.9/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.9/dist/html5-qrcode.min.js"></script>
 <style>
 :root{ --primary:#0F67B1; --ink:#1b1f23; --muted:#6b7280; --bg:#f7f8fa; }
 *{ box-sizing:border-box }
@@ -188,8 +189,21 @@ textarea{ min-height:90px; resize:vertical }
   </div>
 </div>
 
+
 <script>
-let currentTarget = null, html5Scanner = null, stopTimer = null;
+// Ensure library is available (wait up to ~5s), helpful for iOS where CDN load kan vertragen
+async function ensureHtml5QrcodeLoaded(){
+  if (window.Html5Qrcode) return;
+  let tries = 0;
+  await new Promise((resolve, reject) => {
+    const t = setInterval(() => {
+      if (window.Html5Qrcode) { clearInterval(t); resolve(); }
+      else if (++tries > 50) { clearInterval(t); reject(new Error("Html5Qrcode niet geladen")); }
+    }, 100);
+  });
+}
+</script>
+\1 = null, html5Scanner = null, stopTimer = null;
 function showErr(msg){ document.getElementById('scanError').textContent = msg || ''; }
 function blurInputs(){ try { document.activeElement && document.activeElement.blur(); } catch(e){} window.scrollTo({ top: 0, behavior: 'smooth' }); }
 
@@ -198,7 +212,7 @@ async function openScanner(target){
   document.getElementById('scanTip').textContent = target==='vin' ? 'Richt op VIN (Code39)' : 'Richt op QR/streepjescode voor IMEI';
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
-    let devices=[]; try{ devices = await Html5Qrcode.getCameras(); }catch(e){}
+    let devices=[]; try{ devices = (window.Html5Qrcode ? await Html5Qrcode.getCameras() : []); }catch(e){}
     let back=null; if(devices && devices.length){ back = (devices.find(d=>/back|rear|environment|achter/i.test(d.label)) || devices[devices.length-1]).id; }
     stream.getTracks().forEach(t=>t.stop());
 

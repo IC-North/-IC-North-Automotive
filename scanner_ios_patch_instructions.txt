@@ -1,0 +1,3 @@
+We hebben geprobeerd de html5-qrcode script-tag toe te voegen en een startScanIMEI helper te injecteren.
+Zorg dat je een knop hebt die startScanIMEI('reader') aanroept en dat er een <div id="reader"></div> aanwezig is.
+Als je bundler imports gebruikt, haal dan de CDN script-tag weer weg en importeer vanuit 'html5-qrcode'.
