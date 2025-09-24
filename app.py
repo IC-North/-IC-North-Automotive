@@ -90,6 +90,7 @@ textarea{ min-height:90px; resize:vertical }
 #scanError{ color:#fecaca; font-size:12px; margin-top:6px; }
 .footer-info{ color:#9ca3af; font-size:12px; text-align:center; margin-top:8px }
 </style>
+
 <script src="https://unpkg.com/html5-qrcode@2.3.9/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
@@ -326,6 +327,26 @@ function isValidVIN(v){
   }
 })();
 </script>
+
+
+<div class="scanner" id="vinOcr" style="display:none">
+  <div class="box">
+    <header>
+      <div><strong>VIN scannen (tekst-OCR)</strong><br><small>Richt de camera op het chassisnummer. Alleen A-Z & 0-9 (zonder I, O, Q).</small></div>
+      <div><button type="button" onclick="closeVinOcr()">Sluiten</button></div>
+    </header>
+    <div style="padding:8px">
+      <video id="vinVideo" playsinline autoplay muted style="width:100%;max-height:60vh;background:#0b1220"></video>
+      <canvas id="vinCanvas" style="display:none"></canvas>
+      <div class="actions" style="margin-top:10px">
+        <button type="button" class="btn" id="vinStartBtn" onclick="startVinOcr()">Start camera</button>
+        <button type="button" class="btn secondary" id="vinSnapBtn" onclick="snapVinFrame()" disabled>Herken VIN</button>
+      </div>
+      <div class="hint" id="vinHint"></div>
+      <div id="vinError" class="hint" style="color:#fecaca"></div>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
