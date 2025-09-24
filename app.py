@@ -203,7 +203,7 @@ async function ensureHtml5QrcodeLoaded(){
   });
 }
 </script>
-\1 = null, html5Scanner = null, stopTimer = null;
+let currentTarget = null, html5Scanner = null, stopTimer = null;
 function showErr(msg){ document.getElementById('scanError').textContent = msg || ''; }
 function blurInputs(){ try { document.activeElement && document.activeElement.blur(); } catch(e){} window.scrollTo({ top: 0, behavior: 'smooth' }); }
 
