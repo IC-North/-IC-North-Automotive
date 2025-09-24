@@ -257,6 +257,76 @@ kentekenEl.addEventListener('change', () => {
 function haalRdw(){ const k=kentekenEl.value.trim(); if(!k){ alert('Vul eerst een kenteken in.'); return; } fetch('/rdw?kenteken='+encodeURIComponent(k)).then(r=>r.json()).then(d=>{ if(d&&d.success){ document.getElementById('merk').value=d.merk||''; document.getElementById('type').value=d.type||''; document.getElementById('bouwjaar').value=d.bouwjaar||''; } else { alert(d.message || 'Geen gegevens gevonden.'); } }).catch(()=>alert('Fout bij RDW ophalen.')); }
 function formatKenteken(){ let input=document.getElementById("kenteken"); let val=input.value.toUpperCase().replace(/[^A-Z0-9]/g,""); if(val.length===6){ val=val.replace(/(.{2})(.{2})(.{2})/,"$1-$2-$3"); } else if(val.length===7){ val=val.replace(/(.{2})(.{3})(.{2})/,"$1-$2-$3"); } else if(val.length===8){ val=val.replace(/(.{2})(.{2})(.{3})(.{1})/,"$1-$2-$3-$4"); } input.value=val; }
 </script>
+
+<script>
+/* -- imei/vin validation injected -- */
+function isValidIMEI(s){
+  s = (s||"").replace(/\D/g,'');
+  if (!/^\d{15}$/.test(s)) return false;
+  let sum=0;
+  for (let i=0;i<15;i++){
+    let d = s.charCodeAt(i)-48;
+    if (i%2===1){ d*=2; if (d>9) d-=9; }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+function luhnCheckDigit14(s){
+  s = (s||"").replace(/\D/g,'');
+  if (!/^\d{14}$/.test(s)) return null;
+  let sum=0;
+  for (let i=0;i<14;i++){
+    let d = s.charCodeAt(i)-48;
+    if (i%2===1){ d*=2; if (d>9) d-=9; }
+    sum += d;
+  }
+  return (10-(sum%10))%10;
+}
+function isValidVIN(v){
+  v = (v||"").toUpperCase();
+  if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(v)) return false;
+  const map = {A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9};
+  const w = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+  const val = ch => (ch>='0'&&ch<='9') ? (ch.charCodeAt(0)-48) : (map[ch]||0);
+  let sum=0;
+  for (let i=0;i<17;i++) sum += val(v[i]) * w[i];
+  const check = sum % 11;
+  const checkChar = check === 10 ? 'X' : String(check);
+  return v[8] === checkChar;
+}
+
+(function attachValidation(){
+  const imeiEl = document.getElementById('imei');
+  if (imeiEl){
+    const handler = () => {
+      let v = imeiEl.value.replace(/\D/g,'');
+      if (v.length===14){
+        const d = luhnCheckDigit14(v);
+        if (d!==null){ v = v + String(d); imeiEl.value = v; }
+      }
+      const ok = v==='' || (v.length===15 && isValidIMEI(v));
+      imeiEl.setCustomValidity(ok ? '' : 'Ongeldige IMEI (15 cijfers, Luhn)');
+    };
+    imeiEl.addEventListener('input', handler);
+    imeiEl.addEventListener('change', handler);
+  }
+  const vinEl = document.getElementById('vin');
+  if (vinEl){
+    const handlerVin = () => {
+      let v = vinEl.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
+      // forbid I, O, Q
+      v = v.replace(/[IOQ]/g,'');
+      if (v.length>17) v = v.slice(0,17);
+      vinEl.value = v;
+      const ok = v==='' || (v.length===17 && isValidVIN(v));
+      vinEl.setCustomValidity(ok ? '' : 'Ongeldige VIN (17 tekens, met checkdigit)');
+    };
+    vinEl.addEventListener('input', handlerVin);
+    vinEl.addEventListener('change', handlerVin);
+  }
+})();
+</script>
+
 </body>
 </html>
     """
