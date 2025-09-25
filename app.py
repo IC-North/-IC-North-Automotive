@@ -61,6 +61,7 @@ def index():
 <title>IC‑North Automotive · Opdrachtbon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/html5-qrcode@2.3.9/html5-qrcode.min.js"></script>
 <style>
 :root{ --primary:#0F67B1; --ink:#1b1f23; --muted:#6b7280; --bg:#f7f8fa; }
 *{ box-sizing:border-box }
@@ -90,9 +91,6 @@ textarea{ min-height:90px; resize:vertical }
 #scanError{ color:#fecaca; font-size:12px; margin-top:6px; }
 .footer-info{ color:#9ca3af; font-size:12px; text-align:center; margin-top:8px }
 </style>
-
-<script src="https://unpkg.com/html5-qrcode@2.3.9/html5-qrcode.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -128,7 +126,7 @@ textarea{ min-height:90px; resize:vertical }
         </div>
         <div>
           <label>VIN (chassisnummer – 17 tekens)</label>
-          <input id="vin" name="vin" maxlength="17" minlength="17" placeholder="Scan of typ VIN (17)"><div class="actions"><button type="button" class="btn icon" onclick="openVinOcr('vin')">Scan VIN (OCR)</button></div>
+          <input id="vin" name="vin" maxlength="17" minlength="17" placeholder="Scan of typ VIN (17)">
           <div class="actions"><button type="button" class="btn icon" onclick="openScanner('vin')">Scan VIN</button></div>
           <div class="hint">Verwijdert automatisch I/O/Q en accepteert exact 17 tekens.</div>
         </div>
@@ -190,20 +188,7 @@ textarea{ min-height:90px; resize:vertical }
   </div>
 </div>
 
-
 <script>
-// Ensure library is available (wait up to ~5s), helpful for iOS where CDN load kan vertragen
-async function ensureHtml5QrcodeLoaded(){
-  if (window.Html5Qrcode) return;
-  let tries = 0;
-  await new Promise((resolve, reject) => {
-    const t = setInterval(() => {
-      if (window.Html5Qrcode) { clearInterval(t); resolve(); }
-      else if (++tries > 50) { clearInterval(t); reject(new Error("Html5Qrcode niet geladen")); }
-    }, 100);
-  });
-}
-</script>
 let currentTarget = null, html5Scanner = null, stopTimer = null;
 function showErr(msg){ document.getElementById('scanError').textContent = msg || ''; }
 function blurInputs(){ try { document.activeElement && document.activeElement.blur(); } catch(e){} window.scrollTo({ top: 0, behavior: 'smooth' }); }
@@ -213,7 +198,7 @@ async function openScanner(target){
   document.getElementById('scanTip').textContent = target==='vin' ? 'Richt op VIN (Code39)' : 'Richt op QR/streepjescode voor IMEI';
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
-    let devices=[]; try{ devices = (window.Html5Qrcode ? await Html5Qrcode.getCameras() : []); }catch(e){}
+    let devices=[]; try{ devices = await Html5Qrcode.getCameras(); }catch(e){}
     let back=null; if(devices && devices.length){ back = (devices.find(d=>/back|rear|environment|achter/i.test(d.label)) || devices[devices.length-1]).id; }
     stream.getTracks().forEach(t=>t.stop());
 
@@ -258,96 +243,6 @@ kentekenEl.addEventListener('change', () => {
 function haalRdw(){ const k=kentekenEl.value.trim(); if(!k){ alert('Vul eerst een kenteken in.'); return; } fetch('/rdw?kenteken='+encodeURIComponent(k)).then(r=>r.json()).then(d=>{ if(d&&d.success){ document.getElementById('merk').value=d.merk||''; document.getElementById('type').value=d.type||''; document.getElementById('bouwjaar').value=d.bouwjaar||''; } else { alert(d.message || 'Geen gegevens gevonden.'); } }).catch(()=>alert('Fout bij RDW ophalen.')); }
 function formatKenteken(){ let input=document.getElementById("kenteken"); let val=input.value.toUpperCase().replace(/[^A-Z0-9]/g,""); if(val.length===6){ val=val.replace(/(.{2})(.{2})(.{2})/,"$1-$2-$3"); } else if(val.length===7){ val=val.replace(/(.{2})(.{3})(.{2})/,"$1-$2-$3"); } else if(val.length===8){ val=val.replace(/(.{2})(.{2})(.{3})(.{1})/,"$1-$2-$3-$4"); } input.value=val; }
 </script>
-
-<script>
-/* -- imei/vin validation injected -- */
-function isValidIMEI(s){
-  s = (s||"").replace(/\D/g,'');
-  if (!/^\d{15}$/.test(s)) return false;
-  let sum=0;
-  for (let i=0;i<15;i++){
-    let d = s.charCodeAt(i)-48;
-    if (i%2===1){ d*=2; if (d>9) d-=9; }
-    sum += d;
-  }
-  return sum % 10 === 0;
-}
-function luhnCheckDigit14(s){
-  s = (s||"").replace(/\D/g,'');
-  if (!/^\d{14}$/.test(s)) return null;
-  let sum=0;
-  for (let i=0;i<14;i++){
-    let d = s.charCodeAt(i)-48;
-    if (i%2===1){ d*=2; if (d>9) d-=9; }
-    sum += d;
-  }
-  return (10-(sum%10))%10;
-}
-function isValidVIN(v){
-  v = (v||"").toUpperCase();
-  if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(v)) return false;
-  const map = {A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9};
-  const w = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
-  const val = ch => (ch>='0'&&ch<='9') ? (ch.charCodeAt(0)-48) : (map[ch]||0);
-  let sum=0;
-  for (let i=0;i<17;i++) sum += val(v[i]) * w[i];
-  const check = sum % 11;
-  const checkChar = check === 10 ? 'X' : String(check);
-  return v[8] === checkChar;
-}
-
-(function attachValidation(){
-  const imeiEl = document.getElementById('imei');
-  if (imeiEl){
-    const handler = () => {
-      let v = imeiEl.value.replace(/\D/g,'');
-      if (v.length===14){
-        const d = luhnCheckDigit14(v);
-        if (d!==null){ v = v + String(d); imeiEl.value = v; }
-      }
-      const ok = v==='' || (v.length===15 && isValidIMEI(v));
-      imeiEl.setCustomValidity(ok ? '' : 'Ongeldige IMEI (15 cijfers, Luhn)');
-    };
-    imeiEl.addEventListener('input', handler);
-    imeiEl.addEventListener('change', handler);
-  }
-  const vinEl = document.getElementById('vin');
-  if (vinEl){
-    const handlerVin = () => {
-      let v = vinEl.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
-      // forbid I, O, Q
-      v = v.replace(/[IOQ]/g,'');
-      if (v.length>17) v = v.slice(0,17);
-      vinEl.value = v;
-      const ok = v==='' || (v.length===17 && isValidVIN(v));
-      vinEl.setCustomValidity(ok ? '' : 'Ongeldige VIN (17 tekens, met checkdigit)');
-    };
-    vinEl.addEventListener('input', handlerVin);
-    vinEl.addEventListener('change', handlerVin);
-  }
-})();
-</script>
-
-
-<div class="scanner" id="vinOcr" style="display:none">
-  <div class="box">
-    <header>
-      <div><strong>VIN scannen (tekst-OCR)</strong><br><small>Richt de camera op het chassisnummer. Alleen A-Z & 0-9 (zonder I, O, Q).</small></div>
-      <div><button type="button" onclick="closeVinOcr()">Sluiten</button></div>
-    </header>
-    <div style="padding:8px">
-      <video id="vinVideo" playsinline autoplay muted style="width:100%;max-height:60vh;background:#0b1220"></video>
-      <canvas id="vinCanvas" style="display:none"></canvas>
-      <div class="actions" style="margin-top:10px">
-        <button type="button" class="btn" id="vinStartBtn" onclick="startVinOcr()">Start camera</button>
-        <button type="button" class="btn secondary" id="vinSnapBtn" onclick="snapVinFrame()" disabled>Herken VIN</button>
-      </div>
-      <div class="hint" id="vinHint"></div>
-      <div id="vinError" class="hint" style="color:#fecaca"></div>
-    </div>
-  </div>
-</div>
-
 </body>
 </html>
     """
