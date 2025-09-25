@@ -61,7 +61,6 @@ def index():
 <title>IC‑North Automotive · Opdrachtbon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/html5-qrcode@2.3.9/html5-qrcode.min.js"></script>
 <style>
 :root{ --primary:#0F67B1; --ink:#1b1f23; --muted:#6b7280; --bg:#f7f8fa; }
 *{ box-sizing:border-box }
@@ -82,13 +81,8 @@ textarea{ min-height:90px; resize:vertical }
 .actions{ display:grid; grid-template-columns:1fr; gap:12px; margin-top:6px }
 @media (min-width:520px){ .actions{ grid-template-columns:1fr 1fr } }
 .hint{ font-size:12px; color:#6b7280; margin-top:-10px; margin-bottom:10px }
-.scanner{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:9999; align-items:center; justify-content:center; }
-.scanner .box{ background:#0b1220; border-radius:16px; width:min(96vw,720px); padding:12px; }
-.scanner header{ color:#cbd5e1; padding:6px 8px 10px; display:flex; justify-content:space-between; align-items:center }
-.scanner header small{ color:#94a3b8 }
-.scanner button{ background:#111827; color:#fff; border:0; border-radius:10px; padding:8px 12px; cursor:pointer }
+
 #reader{ width:100%; height:60vh; background:#0b1220; }
-#scanError{ color:#fecaca; font-size:12px; margin-top:6px; }
 .footer-info{ color:#9ca3af; font-size:12px; text-align:center; margin-top:8px }
 </style>
 </head>
@@ -169,65 +163,41 @@ textarea{ min-height:90px; resize:vertical }
 <button class="btn" type="submit">PDF maken &amp; mailen</button>
     </form>
 
-    <div class="footer-info">Scan werkt op iPhone (Safari) via camera • RDW via open data</div>
   </div>
 </div>
-
-<div class="scanner" id="scanner">
-  <div class="box">
-    <header>
-      <div>Camera scanner</div>
-      <div><small id="scanTip">Richt op code</small> <button onclick="closeScanner()">Sluiten</button></div>
     </header>
     <div id="reader"></div>
-    <div id="scanError"></div>
   </div>
 </div>
 
 <script>
-let currentTarget = null, html5Scanner = null, stopTimer = null;
-function showErr(msg){ document.getElementById('scanError').textContent = msg || ''; }
 function blurInputs(){ try { document.activeElement && document.activeElement.blur(); } catch(e){} window.scrollTo({ top: 0, behavior: 'smooth' }); }
 
-async function openScanner(target){
-  currentTarget = target; blurInputs(); document.getElementById('scanner').style.display='flex'; showErr('');
-  document.getElementById('scanTip').textContent = target==='vin' ? 'Richt op VIN (Code39)' : 'Richt op QR/streepjescode voor IMEI';
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
-    let devices=[]; try{ devices = await Html5Qrcode.getCameras(); }catch(e){}
+async  } });
     let back=null; if(devices && devices.length){ back = (devices.find(d=>/back|rear|environment|achter/i.test(d.label)) || devices[devices.length-1]).id; }
     stream.getTracks().forEach(t=>t.stop());
 
-    const config = { fps: 12, qrbox: 320, aspectRatio: 1.777, rememberLastUsedCamera: true, showTorchButtonIfSupported: true };
     // Fallback: alleen setten als enum bestaat (Safari-fix)
-    const F = window.Html5QrcodeSupportedFormats;
     if (F) { config.formatsToSupport = [F.QR_CODE, F.CODE_39, F.CODE_128, F.EAN_13, F.EAN_8]; }
 
-    html5Scanner = new Html5Qrcode("reader");
     await new Promise(res=>setTimeout(res,80));
-    await html5Scanner.start(back ? { deviceId:{ exact: back } } : { facingMode:"environment" }, config, onScanSuccess, onScanError);
-  } catch(e){ showErr("Kon camera niet starten: " + (e && e.message ? e.message : e)); }
+    await 
 
   clearTimeout(stopTimer);
-  stopTimer = setTimeout(()=>{ alert("Geen code gevonden. Probeer meer licht of dichterbij."); closeScanner(); }, 30000);
 }
 
-function onScanSuccess(decodedText){
-  if(currentTarget==='vin'){
-    const cleaned = decodedText.replace(/[^A-Za-z0-9]/g,'').toUpperCase().replace(/[IOQ]/g,'');
-    if(cleaned.length===17){ document.getElementById('vin').value = cleaned; beep(); closeScanner(); }
+
   } else {
     const digits = decodedText.replace(/\D/g,'');
     const m15 = digits.match(/\d{15}/), m14 = digits.match(/\d{14}/);
     let out=null; if(m15){ out=m15[0]; } else if(m14){ out=m14[0] + String(luhnCheckDigit14(m14[0])); }
-    if(out){ document.getElementById('imei').value = out; beep(); closeScanner(); }
   }
 }
-function onScanError(_e){}
 
-function closeScanner(){ clearTimeout(stopTimer); document.getElementById('scanner').style.display='none'; if(html5Scanner){ html5Scanner.stop().then(()=>{ html5Scanner.clear(); html5Scanner=null; }).catch(()=>{});} }
+
+).catch(()=>{});} }
 function luhnCheckDigit14(s){ let sum=0; for(let i=0;i<14;i++){ let d=parseInt(s[i],10); if(i%2===1){ d*=2; if(d>9) d-=9; } sum+=d; } return (10-(sum%10))%10; }
-function beep(){ try{ const ctx=new (window.AudioContext||window.webkitAudioContext)(); const o=ctx.createOscillator(), g=ctx.createGain(); o.type='sine'; o.frequency.value=880; o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.2,ctx.currentTime+0.01); o.start(); setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.05); o.stop(ctx.currentTime+0.06); },60);}catch(e){} }
+,60);}catch(e){} }
 
 // rest utilities
 const kentekenEl = document.getElementById('kenteken');
