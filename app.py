@@ -120,15 +120,11 @@ textarea{ min-height:90px; resize:vertical }
       <div class="row row-2">
         <div>
           <label>IMEI nummer</label>
-          <input id="imei" name="imei" placeholder="Scan of typ het nummer">
-          <div class="actions"><button type="button" class="btn icon" onclick="openScanner('imei')">Scan IMEI</button></div>
-          <div class="hint">Ondersteunt QR, Code128, Code39, EAN-13/8. Voegt checkdigit toe bij 14 cijfers.</div>
+          <input id="imei" name="imei" placeholder="Typ het nummer">
         </div>
         <div>
           <label>VIN (chassisnummer – 17 tekens)</label>
-          <input id="vin" name="vin" maxlength="17" minlength="17" placeholder="Scan of typ VIN (17)">
-          <div class="actions"><button type="button" class="btn icon" onclick="openScanner('vin')">Scan VIN</button></div>
-          <div class="hint">Verwijdert automatisch I/O/Q en accepteert exact 17 tekens.</div>
+          <input id="vin" name="vin" maxlength="17" minlength="17" placeholder="Typ VIN (17)">
         </div>
       </div>
 
