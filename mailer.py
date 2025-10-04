@@ -20,12 +20,10 @@ def build_message(
     msg['From'] = sender
     msg['To'] = recipient
     msg.set_content(body_text)
-
     if attachments:
         for content_bytes, filename, mime in attachments:
             maintype, subtype = (mime.split('/', 1) + ['octet-stream'])[:2]
             msg.add_attachment(content_bytes, maintype=maintype, subtype=subtype, filename=filename)
-
     return msg
 
 def _extract_attachments(msg: EmailMessage) -> List[Tuple[bytes, str, str]]:
