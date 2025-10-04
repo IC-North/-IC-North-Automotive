@@ -1,4 +1,4 @@
-# mailer.py
+
 import os
 import base64
 import json
@@ -16,10 +16,6 @@ def build_message(
     recipient: str,
     attachments: Optional[Iterable[Tuple[bytes, str, str]]] = None
 ) -> EmailMessage:
-    """
-    Bouwt een EmailMessage object (zelfde interface als voorheen).
-    attachments: iterable van (content_bytes, filename, mime_type)
-    """
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = sender
@@ -34,7 +30,6 @@ def build_message(
     return msg
 
 def _extract_attachments(msg: EmailMessage) -> List[Tuple[bytes, str, str]]:
-    """Haal (bytes, filename, mime) uit EmailMessage bijlagen."""
     atts: List[Tuple[bytes, str, str]] = []
     for part in msg.iter_attachments():
         payload = part.get_payload(decode=True)
@@ -46,18 +41,10 @@ def _extract_attachments(msg: EmailMessage) -> List[Tuple[bytes, str, str]]:
 def _split_emails(s: str) -> List[str]:
     if not s:
         return []
-    # ondersteunt komma of puntkomma
     parts = [p.strip() for p in s.replace(';', ',').split(',') if p.strip()]
-    # simpele validatie
     return [p for p in parts if '@' in p]
 
 def send_email(msg: EmailMessage) -> str:
-    """
-    Verstuur e-mail via Twilio SendGrid REST API.
-    Vereist:
-      - SENDGRID_API_KEY (env)
-      - 'From' moet geverifieerd zijn in SendGrid (Single Sender of Domain Auth)
-    """
     api_key = os.getenv("SENDGRID_API_KEY")
     if not api_key:
         raise MailConfigError("SENDGRID_API_KEY is not set")
@@ -69,7 +56,6 @@ def send_email(msg: EmailMessage) -> str:
     if not to_emails:
         raise MailConfigError("Recipient(s) missing")
 
-    # Bouw payload
     body_part = msg.get_body(preferencelist=('plain', 'html'))
     body_text = body_part.get_content() if body_part else ""
 
@@ -85,10 +71,29 @@ def send_email(msg: EmailMessage) -> str:
         }],
     }
 
-    # Reply-To (optioneel)
     reply_to = msg.get('Reply-To')
     if reply_to:
         data["reply_to"] = {"email": reply_to}
 
-    # Bijlagen
-    attachments = _extract_attachments(msg
+    attachments = _extract_attachments(msg)
+    if attachments:
+        data["attachments"] = [{
+            "content": base64.b64encode(content).decode('ascii'),
+            "type": mime,
+            "filename": filename,
+            "disposition": "attachment"
+        } for content, filename, mime in attachments]
+
+    resp = requests.post(
+        "https://api.sendgrid.com/v3/mail/send",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        },
+        data=json.dumps(data),
+        timeout=float(os.getenv("SENDGRID_TIMEOUT", "20"))
+    )
+    if resp.status_code >= 400:
+        raise MailConfigError(f"SendGrid error {resp.status_code}: {resp.text[:300]}")
+    msg_id = resp.headers.get('X-Message-Id') or resp.headers.get('X-Message-ID')
+    return f"sent via SendGrid API{(' id='+msg_id) if msg_id else ''}"
