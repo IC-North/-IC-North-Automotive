@@ -61,6 +61,7 @@ def index():
 <title>IC‑North Automotive · Opdrachtbon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/html5-qrcode@2.3.9/html5-qrcode.min.js"></script>
 <style>
 :root{ --primary:#0F67B1; --ink:#1b1f23; --muted:#6b7280; --bg:#f7f8fa; }
 *{ box-sizing:border-box }
@@ -81,8 +82,13 @@ textarea{ min-height:90px; resize:vertical }
 .actions{ display:grid; grid-template-columns:1fr; gap:12px; margin-top:6px }
 @media (min-width:520px){ .actions{ grid-template-columns:1fr 1fr } }
 .hint{ font-size:12px; color:#6b7280; margin-top:-10px; margin-bottom:10px }
-
+.scanner{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:9999; align-items:center; justify-content:center; }
+.scanner .box{ background:#0b1220; border-radius:16px; width:min(96vw,720px); padding:12px; }
+.scanner header{ color:#cbd5e1; padding:6px 8px 10px; display:flex; justify-content:space-between; align-items:center }
+.scanner header small{ color:#94a3b8 }
+.scanner button{ background:#111827; color:#fff; border:0; border-radius:10px; padding:8px 12px; cursor:pointer }
 #reader{ width:100%; height:60vh; background:#0b1220; }
+#scanError{ color:#fecaca; font-size:12px; margin-top:6px; }
 .footer-info{ color:#9ca3af; font-size:12px; text-align:center; margin-top:8px }
 </style>
 </head>
@@ -114,11 +120,15 @@ textarea{ min-height:90px; resize:vertical }
       <div class="row row-2">
         <div>
           <label>IMEI nummer</label>
-          <input id="imei" name="imei" placeholder="Typ het nummer">
+          <input id="imei" name="imei" placeholder="Scan of typ het nummer">
+          <div class="actions"><button type="button" class="btn icon" onclick="openScanner('imei')">Scan IMEI</button></div>
+          <div class="hint">Ondersteunt QR, Code128, Code39, EAN-13/8. Voegt checkdigit toe bij 14 cijfers.</div>
         </div>
         <div>
           <label>VIN (chassisnummer – 17 tekens)</label>
-          <input id="vin" name="vin" maxlength="17" minlength="17" placeholder="Typ VIN (17)">
+          <input id="vin" name="vin" maxlength="17" minlength="17" placeholder="Scan of typ VIN (17)">
+          <div class="actions"><button type="button" class="btn icon" onclick="openScanner('vin')">Scan VIN</button></div>
+          <div class="hint">Verwijdert automatisch I/O/Q en accepteert exact 17 tekens.</div>
         </div>
       </div>
 
@@ -163,41 +173,65 @@ textarea{ min-height:90px; resize:vertical }
 <button class="btn" type="submit">PDF maken &amp; mailen</button>
     </form>
 
+    <div class="footer-info">Scan werkt op iPhone (Safari) via camera • RDW via open data</div>
   </div>
 </div>
+
+<div class="scanner" id="scanner">
+  <div class="box">
+    <header>
+      <div>Camera scanner</div>
+      <div><small id="scanTip">Richt op code</small> <button onclick="closeScanner()">Sluiten</button></div>
     </header>
     <div id="reader"></div>
+    <div id="scanError"></div>
   </div>
 </div>
 
 <script>
+let currentTarget = null, html5Scanner = null, stopTimer = null;
+function showErr(msg){ document.getElementById('scanError').textContent = msg || ''; }
 function blurInputs(){ try { document.activeElement && document.activeElement.blur(); } catch(e){} window.scrollTo({ top: 0, behavior: 'smooth' }); }
 
-async  } });
+async function openScanner(target){
+  currentTarget = target; blurInputs(); document.getElementById('scanner').style.display='flex'; showErr('');
+  document.getElementById('scanTip').textContent = target==='vin' ? 'Richt op VIN (Code39)' : 'Richt op QR/streepjescode voor IMEI';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+    let devices=[]; try{ devices = await Html5Qrcode.getCameras(); }catch(e){}
     let back=null; if(devices && devices.length){ back = (devices.find(d=>/back|rear|environment|achter/i.test(d.label)) || devices[devices.length-1]).id; }
     stream.getTracks().forEach(t=>t.stop());
 
+    const config = { fps: 12, qrbox: 320, aspectRatio: 1.777, rememberLastUsedCamera: true, showTorchButtonIfSupported: true };
     // Fallback: alleen setten als enum bestaat (Safari-fix)
+    const F = window.Html5QrcodeSupportedFormats;
     if (F) { config.formatsToSupport = [F.QR_CODE, F.CODE_39, F.CODE_128, F.EAN_13, F.EAN_8]; }
 
+    html5Scanner = new Html5Qrcode("reader");
     await new Promise(res=>setTimeout(res,80));
-    await 
+    await html5Scanner.start(back ? { deviceId:{ exact: back } } : { facingMode:"environment" }, config, onScanSuccess, onScanError);
+  } catch(e){ showErr("Kon camera niet starten: " + (e && e.message ? e.message : e)); }
 
   clearTimeout(stopTimer);
+  stopTimer = setTimeout(()=>{ alert("Geen code gevonden. Probeer meer licht of dichterbij."); closeScanner(); }, 30000);
 }
 
-
+function onScanSuccess(decodedText){
+  if(currentTarget==='vin'){
+    const cleaned = decodedText.replace(/[^A-Za-z0-9]/g,'').toUpperCase().replace(/[IOQ]/g,'');
+    if(cleaned.length===17){ document.getElementById('vin').value = cleaned; beep(); closeScanner(); }
   } else {
     const digits = decodedText.replace(/\D/g,'');
     const m15 = digits.match(/\d{15}/), m14 = digits.match(/\d{14}/);
     let out=null; if(m15){ out=m15[0]; } else if(m14){ out=m14[0] + String(luhnCheckDigit14(m14[0])); }
+    if(out){ document.getElementById('imei').value = out; beep(); closeScanner(); }
   }
 }
+function onScanError(_e){}
 
-
-).catch(()=>{});} }
+function closeScanner(){ clearTimeout(stopTimer); document.getElementById('scanner').style.display='none'; if(html5Scanner){ html5Scanner.stop().then(()=>{ html5Scanner.clear(); html5Scanner=null; }).catch(()=>{});} }
 function luhnCheckDigit14(s){ let sum=0; for(let i=0;i<14;i++){ let d=parseInt(s[i],10); if(i%2===1){ d*=2; if(d>9) d-=9; } sum+=d; } return (10-(sum%10))%10; }
-,60);}catch(e){} }
+function beep(){ try{ const ctx=new (window.AudioContext||window.webkitAudioContext)(); const o=ctx.createOscillator(), g=ctx.createGain(); o.type='sine'; o.frequency.value=880; o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.001,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.2,ctx.currentTime+0.01); o.start(); setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.05); o.stop(ctx.currentTime+0.06); },60);}catch(e){} }
 
 // rest utilities
 const kentekenEl = document.getElementById('kenteken');
@@ -258,123 +292,87 @@ def submit():
 
     now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
     pdf_buf = BytesIO(); c = canvas.Canvas(pdf_buf, pagesize=A4); w,h = A4
-    # ===== V9 LAYOUT (volledige stijl: header, cards, fotogrid, footer) =====
-    TITLE_COLOR = colors.HexColor("#4a4a4a")
+    # Header met logo + titel
     logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.jpg")
     try:
         if os.path.exists(logo_path):
-            im = Image.open(logo_path)
-            try: im = ImageOps.exif_transpose(im)
-            except Exception: pass
-            im = im.convert("RGB")
-            bbox = im.getbbox()
-            if bbox: im = im.crop(bbox)
-            ir_logo = ImageReader(im)
-            lw, lh = im.size
-            logo_target_h = 3.8*cm
-            scale = logo_target_h / lh
-            logo_w = lw*scale; logo_h = lh*scale
-            top_margin = 0.8*cm
-            title_font = 16
-            ascent_pts = 0.80 * title_font
-            title_top_y = h - top_margin
-            y_logo = title_top_y - logo_h
-            c.drawImage(ir_logo, 2*cm, y_logo, width=logo_w, height=logo_h, preserveAspectRatio=True, mask='auto')
+            ir_logo = ImageReader(logo_path)
+            # schaal logo tot max 3.5cm breed en 1.6cm hoog
+            lw, lh = ir_logo.getSize()
+            max_w_cm, max_h_cm = 3.5*cm, 1.6*cm
+            scale = min(max_w_cm/lw, max_h_cm/lh) if lw and lh else 1.0
+            c.drawImage(ir_logo, 2*cm, h-2*cm-1.6*cm, width=lw*scale, height=lh*scale, preserveAspectRatio=True, mask='auto')
     except Exception:
         pass
-    c.setFillColor(TITLE_COLOR); c.setFont("Helvetica-Bold", 16)
-    title_y = (h - 0.8*cm) - 0.80*16
-    c.drawRightString(w-2*cm, title_y, "Opdrachtbon")
-    c.setFont("Helvetica", 10); c.drawRightString(w-2*cm, title_y - 0.9*cm, now)
-    
-    def card(x, y, width, height, title):
-        c.setFillColor(colors.white)
-        c.setStrokeColor(colors.HexColor("#d8e2ef"))
-        c.setLineWidth(0.6)
-        c.roundRect(x, y, width, height, 8, fill=1, stroke=1)
-        c.setFillColor(TITLE_COLOR); c.setFont("Helvetica-Bold", 12)
-        c.drawString(x+0.6*cm, y+height-0.55*cm, title)
-    
-    margin_x = 2*cm
-    content_top = h - 6.8*cm
-    col_w = w - 2*margin_x
-    y = content_top
-    
-    data_h = 4.8*cm
-    card(margin_x, y - data_h, col_w, data_h, "Klant & Voertuig")
-    left_x = margin_x + 0.8*cm
-    right_x = margin_x + col_w/2 + 0.2*cm
-    line_y = y - 1.4*cm
-    
-    def draw_pair(x, y0, label, value):
-        c.setFont("Helvetica-Bold", 10); c.setFillColor(TITLE_COLOR)
-        c.drawString(x, y0, f"{label}:")
-        c.setFont("Helvetica", 10); c.setFillColor(colors.black)
-        c.drawString(x+3.2*cm, y0, value or "-")
-    
-    draw_pair(left_x,  line_y + 0.0*cm, "Klantnaam", klantnaam)
-    draw_pair(left_x,  line_y - 0.85*cm, "Kenteken", kenteken)
-    draw_pair(left_x,  line_y - 1.70*cm, "Merk/Type", (merk or "") + ((" " + type_) if type_ else ""))
-    draw_pair(right_x, line_y + 0.0*cm, "Bouwjaar", bouwjaar)
-    draw_pair(right_x, line_y - 0.85*cm, "IMEI", imei)
-    draw_pair(right_x, line_y - 1.70*cm, "VIN", vin)
-    
-    y -= (data_h + 0.5*cm)
-    
-    op_h = 3.6*cm
-    card(margin_x, y - op_h, col_w, op_h, "Opmerkingen")
-    c.setFont("Helvetica", 10); c.setFillColor(colors.black)
-    t = c.beginText(margin_x+0.8*cm, y - 1.2*cm); t.setLeading(14)
-    for line in (opmerkingen or "").splitlines()[:22]:
-        t.textLine(line[:120])
-    c.drawText(t)
-    y -= (op_h + 0.5*cm)
-    
-    photos_h = 10.0*cm
-    card(margin_x, y - photos_h, col_w, photos_h, "Foto's")
-    inner_x = margin_x + 0.6*cm
-    inner_y_top = y - 1.4*cm
-    inner_w = col_w - 1.2*cm
-    inner_h = photos_h - 2.1*cm
-    cols = 2; rows = 2
-    cell_w = inner_w / cols; cell_h = inner_h / rows
-    
-    label_map = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra"}
-    prepared = []
-    for key, img_bytes, orig in fotos[:4]:
-        small = _shrink_for_pdf(img_bytes, max_side=1200, target_kb=220)
-        prepared.append((key, small, orig))
-    
-    from io import BytesIO as _B
-    for i, tup in enumerate(prepared):
-        key, small, orig = tup
-        r = i // cols; cc = i % cols
-        cx = inner_x + cc*cell_w; cy = inner_y_top - r*cell_h
-        c.setStrokeColor(colors.HexColor("#cfd9e6"))
-        c.roundRect(cx+0.2*cm, cy - cell_h + 0.2*cm, cell_w-0.4*cm, cell_h-0.4*cm, 6, fill=0, stroke=1)
-        pad_x = 0.45*cm; pad_y = 0.50*cm
-        max_w = cell_w - 2*pad_x; max_h = cell_h - pad_y - 0.9*cm
-        try:
-            ir = ImageReader(_B(small))
-            iw, ih = ir.getSize(); sc = min(max_w/iw, max_h/ih) if iw and ih else 1.0
-            tw, th = iw*sc, ih*sc
-            img_x = cx + (cell_w - tw)/2; img_y = cy - pad_y - th
-            c.setStrokeColor(colors.HexColor("#dde6f2"))
-            c.rect(cx+pad_x, cy - pad_y - max_h, max_w, max_h, stroke=1, fill=0)
-            c.drawImage(ir, img_x, img_y, width=tw, height=th, preserveAspectRatio=True, mask="auto")
-        except Exception:
-            pass
-        c.setFont("Helvetica", 9); c.setFillColor(TITLE_COLOR)
-        label = label_map.get(key, key)
-        if orig: label += f" · {orig}"
-        c.drawCentredString(cx + cell_w/2, cy - cell_h + 0.45*cm, label[:70])
-    
-    c.setStrokeColor(colors.HexColor("#d9e3f1")); c.setLineWidth(0.8)
-    c.line(margin_x, 2.15*cm, w - margin_x, 2.15*cm)
-    c.setFont("Helvetica-Oblique", 9); c.setFillColor(colors.HexColor("#6b7c93"))
-    c.drawCentredString(w/2, 1.55*cm, "IC-North Automotive · gegenereerd via webformulier")
-    c.save()
+    c.setFont("Helvetica-Bold", 14); c.drawRightString(w-2*cm, h-2*cm, "Opdrachtbon")
+    c.setFont("Helvetica", 10); c.drawRightString(w-2*cm, h-2*cm-0.5*cm, now)
 
+    c.setFont("Helvetica", 11); y = h-3.2*cm
+    for ln in [f"Klantnaam: {klantnaam}", f"Kenteken: {kenteken}  |  Merk: {merk}  |  Type: {type_}  |  Bouwjaar: {bouwjaar}", f"IMEI: {imei}", f"VIN: {vin}", f"Werkzaamheden: {werkzaamheden}"]:
+        c.drawString(2*cm, y, ln); y -= 1.0*cm
+    c.setFont("Helvetica-Bold", 11); c.drawString(2*cm, y, "Opmerkingen:"); y -= 0.6*cm
+    c.setFont("Helvetica", 10); t = c.beginText(2*cm, y)
+    for line in (opmerkingen or "-").splitlines(): t.textLine(line)
+    c.drawText(t)
+    # Foto's in de PDF plaatsen (grid op één pagina)
+    try:
+        if fotos:
+            # verklein bytes per foto voor PDF en label mapping
+            label_map = {"foto_kenteken":"Kenteken", "foto_imei":"IMEI", "foto_chassis":"Chassis", "foto_extra1":"Extra 1", "foto_extra2":"Extra 2"}
+            prepared = []
+            for key, img_bytes, orig in fotos[:5]:
+                small = _shrink_for_pdf(img_bytes, max_side=950, target_kb=220)
+                prepared.append((key, small, orig))
+            # beschikbare ruimte berekenen: onder de tekst
+            # y is huidige baseline onder "Opmerkingen"; we reserveren ruimte vanaf y-0.4cm
+            y -= 0.4*cm
+            top = y
+            bottom = 2.2*cm  # boven de footer
+            available_h = max(4*cm, top - bottom)
+            left = 2*cm; right = w - 2*cm; available_w = right - left
+            # grid: 2 kolommen, 3 rijen max (we hebben max 5 foto's)
+            cols = 2
+            rows = (len(prepared)+cols-1)//cols
+            rows = min(rows, 3)
+            cell_w = available_w / cols
+            # labelruimte onder elke foto
+            label_h = 0.35*cm
+            # hoogte per rij zo dat alles past
+            cell_h = available_h / max(rows,1)
+            # cap een maximum fotogrootte binnen cell
+            for idx, (key, small, orig) in enumerate(prepared):
+                row = idx // cols
+                col = idx % cols
+                cx = left + col*cell_w
+                cy_top = top - row*cell_h
+                try:
+                    ir = ImageReader(BytesIO(small))
+                    iw, ih = ir.getSize()
+                    # bereken schaal zodat in cell past met label
+                    max_w = cell_w - 0.4*cm
+                    max_h = cell_h - label_h - 0.25*cm
+                    scale = min(max_w/iw, max_h/ih) if iw and ih else 1.0
+                    tw, th = iw*scale, ih*scale
+                    # centreer binnen cel
+                    img_x = cx + (cell_w - tw)/2
+                    img_y = cy_top - th - 0.15*cm
+                    # teken
+                    c.drawImage(ir, img_x, img_y, width=tw, height=th, preserveAspectRatio=True, mask='auto')
+                    # label
+                    c.setFont("Helvetica", 9); c.setFillColor(colors.grey)
+                    label = f"{label_map.get(key,key)}"
+                    if orig: label += f" · {orig}"
+                    c.drawCentredString(cx + cell_w/2, img_y - 0.1*cm, label[:60])
+                    c.setFillColor(colors.black)
+                except Exception:
+                    pass
+            # zet y zodat footer niet overlapt
+            y = bottom + 0.2*cm
+    except Exception:
+        pass
+    c.setFillColor(colors.grey); c.setFont("Helvetica-Oblique", 9)
+    c.drawString(2*cm, 1.5*cm, "IC‑North Automotive · gegenereerd via webformulier"); c.save()
+    
     pdf_bytes = pdf_buf.getvalue(); filename = f"opdrachtbon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
 
     sender = os.getenv("SENDER_EMAIL") or os.getenv("SMTP_USER")
