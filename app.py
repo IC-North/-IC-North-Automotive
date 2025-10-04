@@ -1,6 +1,6 @@
 from mailer import build_message, send_email, MailConfigError
 import os, re, io, datetime, requests
-from flask import Flask, request, jsonify, send_file, render_template_string
+from flask import Flask, render_template_string, request, jsonify, send_file
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
@@ -14,6 +14,62 @@ def format_kenteken(raw: str) -> str:
     if len(k) == 7:
         return f"{k[:2]}-{k[2:5]}-{k[5:]}"
     return k
+
+@app.get("/")
+def index():
+    now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
+    return render_template_string("""
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opdrachtbon</title>
+</head>
+<body>
+  <h2>Opdrachtbon</h2>
+  <form action="/submit" method="post">
+    <label>Kenteken</label>
+    <input id="kenteken" name="kenteken" placeholder="XX-999-X">
+    <button type="button" id="rdw-btn">Haal RDW gegevens</button>
+    <br>
+    <label>Merk</label><input id="merk" name="merk">
+    <label>Type</label><input id="type" name="type">
+    <label>Bouwjaar</label><input id="bouwjaar" name="bouwjaar">
+    <label>Klant email</label><input name="klantemail">
+    <label>Eigen email</label><input name="senderemail">
+    <label>Interne email(s)</label><input name="receiveremail">
+    <button type="submit">Versturen</button>
+  </form>
+
+  <script>
+  const kentekenEl=document.getElementById('kenteken');
+  if(kentekenEl){
+    kentekenEl.addEventListener('change', ()=>{
+      fetch('/format_kenteken',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({raw:kentekenEl.value||""})
+      }).then(r=>r.json()).then(d=>{if(d&&d.formatted) kentekenEl.value=d.formatted;});
+    });
+  }
+  document.getElementById('rdw-btn').addEventListener('click',(e)=>{
+    e.preventDefault();
+    const val=(kentekenEl&&kentekenEl.value||'').trim();
+    fetch('/rdw?kenteken='+encodeURIComponent(val.replace(/[^A-Za-z0-9]/g,'')))
+      .then(r=>r.json())
+      .then(d=>{
+        if(d.success){
+          document.getElementById('merk').value=d.merk||"";
+          document.getElementById('type').value=d.type||"";
+          document.getElementById('bouwjaar').value=d.bouwjaar||"";
+        } else { alert(d.message||"Geen gegevens"); }
+      });
+  });
+  </script>
+</body>
+</html>
+    """, now=now)
 
 @app.post("/format_kenteken")
 def api_format_kenteken():
